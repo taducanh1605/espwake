@@ -1,4 +1,4 @@
-# Static Web Project
+# ESP WAKE PC
 
 ## Overview
 This project is a static web application that consists of HTML, CSS, and JavaScript files. It serves as a simple template for building web applications.
