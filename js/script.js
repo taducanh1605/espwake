@@ -93,10 +93,10 @@ function buildButtons(data, ip) {
     container.innerHTML = listBut;
 
     container.querySelectorAll("button").forEach((button) => {
-        button.addEventListener("click", async () => {
-            await reqGET(`${ip}/pw?relay=${data[key].idx}`);
+        button.addEventListener("click", async (id) => {
+            await reqGET(`${ip}/pw?relay=${id}`);
             setTimeout(() => getStat(ip), 1000);
-        });
+        }, button.id);
     });
     
 }
