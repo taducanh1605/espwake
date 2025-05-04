@@ -94,6 +94,10 @@ function buildButtons(data, ip) {
 
     container.querySelectorAll("button").forEach((button) => {
         button.addEventListener("click", async (id) => {
+            if (button.classList.contains("up")) {
+                const confirmShutdown = confirm("Do you want to shutdown PC?");
+                if (!confirmShutdown) return;
+            }
             await reqGET(`${ip}/pw?relay=${id}`);
             setTimeout(() => getStat(ip), 1000);
         }, button.id);

@@ -65,4 +65,13 @@ button:hover {
     background-color: #0056b3;
 }
 button.up {position: relative; display: inline-block; width: 120px; height: 68px; background: green; border-radius: 40px;} 
+button.up:hover {
+    background: #006400;
+    box-shadow: 0 0 15px 5px rgba(61, 245, 61, 0.6);
+}
+
 button.down {position: relative; display: inline-block; width: 120px; height: 68px; background: red; border-radius: 40px;}
+button.up:hover {
+    background: #a0021c;
+    box-shadow: 0 0 15px 5px rgba(218, 57, 78, 0.6);
+}
