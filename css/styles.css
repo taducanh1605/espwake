@@ -71,7 +71,7 @@ button.up:hover {
 }
 
 button.down {position: relative; display: inline-block; width: 120px; height: 68px; background: red; border-radius: 40px;}
-button.up:hover {
+button.down:hover {
     background: #a0021c;
     box-shadow: 0 0 15px 5px rgba(218, 57, 78, 0.6);
 }
