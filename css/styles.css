@@ -75,3 +75,67 @@ button.down:hover {
     background: #a0021c;
     box-shadow: 0 0 15px 5px rgba(218, 57, 78, 0.6);
 }
+
+/* LOADING */
+.loading-animation {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100px;
+    position: relative;
+}
+.loading-animation .dot {
+    width: 10px;
+    height: 10px;
+    margin: 0 5px;
+    background-color: #3498db;
+    border-radius: 50%;
+    animation: spin 1.5s infinite ease-in-out;
+}
+.loading-animation .dot:nth-child(1) {
+    animation-delay: -0.3s;
+}
+.loading-animation .dot:nth-child(2) {
+    animation-delay: -0.15s;
+}
+.loading-animation .dot:nth-child(3) {
+    animation-delay: 0s;
+}
+@keyframes spin {
+    0%, 80%, 100% {
+        transform: scale(0);
+    }
+    40% {
+        transform: scale(1);
+    }
+}
+
+/* ERROR */
+.error-animation {
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100px;
+    color: #e74c3c;
+    font-family: Arial, sans-serif;
+}
+.error-animation .error-icon {
+    font-size: 50px;
+    margin-bottom: 10px;
+}
+.error-animation p {
+    font-size: 20px;
+}
+
+/* check privacy */
+button#check-privacy {
+    display: inline;
+    margin: 0.5rem 0;
+    padding: 0.5rem 1rem;
+    background-color: orange;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-block: 10px;
+}

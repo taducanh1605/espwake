@@ -75,7 +75,7 @@ function req(url, protocol = "http", med = "GET") {
                 if (xhr.status == 200) {
                     resolve(xhr.responseText); // Trả về text từ response
                 } else {
-                    ErrorResponse(); // Hiển thị thông báo lỗi
+                    ErrorResponse(url); // Hiển thị thông báo lỗi
                     reject(new Error(`HTTP error! status: ${xhr.status}`));
                 }
             }
@@ -106,76 +106,18 @@ function waitResponse() {
             <div class="dot"></div>
         </div>
     `;
-
-    // Add CSS for the loading animation
-    const style = document.createElement("style");
-    style.id = "loading-animation-style";
-    style.textContent = `
-        .loading-animation {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100px;
-            position: relative;
-        }
-        .loading-animation .dot {
-            width: 10px;
-            height: 10px;
-            margin: 0 5px;
-            background-color: #3498db;
-            border-radius: 50%;
-            animation: spin 1.5s infinite ease-in-out;
-        }
-        .loading-animation .dot:nth-child(1) {
-            animation-delay: -0.3s;
-        }
-        .loading-animation .dot:nth-child(2) {
-            animation-delay: -0.15s;
-        }
-        .loading-animation .dot:nth-child(3) {
-            animation-delay: 0s;
-        }
-        @keyframes spin {
-            0%, 80%, 100% {
-                transform: scale(0);
-            }
-            40% {
-                transform: scale(1);
-            }
-        }
-    `;
-    document.head.appendChild(style);
 }
-function ErrorResponse() {
+function ErrorResponse(url) {
     const container = document.getElementById("buttons-container");
     container.innerHTML = `
         <div class="error-animation">
             <div class="error-icon">✖</div>
             <p>Failed to load data. Please check your Server IP.</p>
+            ${url && url.trim() !== "" ? `<button id="check-privacy">Or Check Privacy Here !</button>` : ""}
         </div>
     `;
 
-    // Add CSS for the error animation
-    const style = document.createElement("style");
-    style.id = "error-animation-style";
-    style.textContent = `
-        .error-animation {
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            height: 100px;
-            color: #e74c3c;
-            font-family: Arial, sans-serif;
-        }
-        .error-animation .error-icon {
-            font-size: 50px;
-            margin-bottom: 10px;
-        }
-        .error-animation p {
-            font-size: 20px;
-        }
-    `;
-    document.head.appendChild(style);
+    if (url && url.trim() !== "") document.getElementById("check-privacy").addEventListener("click", () => { window.open(url, "_blank"); });
 }
 
 // Xây dựng các nút từ dữ liệu JSON
