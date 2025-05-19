@@ -119,8 +119,9 @@ function ErrorResponse(url) {
 
     if (url && url.trim() !== "") {
         // hostname
-        const host = url.split("/")[0];
-        document.getElementById("check-privacy").addEventListener("click", () => { window.open(host, "_blank"); });
+        var parse = document.createElement('a');
+        parse.href = url;
+        document.getElementById("check-privacy").addEventListener("click", () => { window.open(parse.origin, "_blank"); });
     }
 }
 
