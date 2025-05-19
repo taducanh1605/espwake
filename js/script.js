@@ -117,7 +117,11 @@ function ErrorResponse(url) {
         </div>
     `;
 
-    if (url && url.trim() !== "") document.getElementById("check-privacy").addEventListener("click", () => { window.open(url, "_blank"); });
+    if (url && url.trim() !== "") {
+        // hostname
+        const host = url.split("/")[0];
+        document.getElementById("check-privacy").addEventListener("click", () => { window.open(host, "_blank"); });
+    }
 }
 
 // Xây dựng các nút từ dữ liệu JSON
