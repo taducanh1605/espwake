@@ -136,14 +136,14 @@ function buildButtons(data, ip) {
     container.innerHTML = listBut;
 
     container.querySelectorAll("button").forEach((button) => {
-        button.addEventListener("click", async (id) => {
+        button.addEventListener("click", async (e) => {
             if (button.classList.contains("up")) {
                 const confirmShutdown = confirm("Do you want to shutdown PC?");
                 if (!confirmShutdown) return;
             }
-            await reqGET(`${ip}/pw?relay=${id}`);
+            await reqGET(`${ip}/pw?relay=${e.target.id}`);
             setTimeout(() => getStat(ip), 1000);
-        }, button.id);
+        });
     });
     
 }
