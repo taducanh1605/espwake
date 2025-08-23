@@ -153,7 +153,6 @@ async function getStat(ip) {
     try {
         waitResponse();
         const data = await fetchJSON(`${ip}/stt`);
-        console.log(data);
         buildButtons(data, ip);
     } catch (error) {
         console.error("Error fetching data:", error);
