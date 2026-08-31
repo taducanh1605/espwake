@@ -137,11 +137,19 @@ function buildButtons(data, ip) {
 
     container.querySelectorAll("button").forEach((button) => {
         button.addEventListener("click", async (e) => {
-            if (button.classList.contains("up")) {
+            if (button.classList.contains("up") || button.classList.contains("connected")) {
                 const confirmShutdown = confirm("Do you want to shutdown PC?");
                 if (!confirmShutdown) return;
+                await reqGET(`${ip}/pw?relay=${e.target.id}`);
+            } else if (button.classList.contains("powered")) {
+                const confirmShutdown = confirm("Do you want to force shutdown PC?");
+                if (!confirmShutdown) return;
+                await reqGET(`${ip}/sd?relay=${e.target.id}`);
+            } else if (button.classList.contains("down") || button.classList.contains("off")) {
+                await reqGET(`${ip}/pw?relay=${e.target.id}`);
+            } else {
+                alert("Unknown button state.");
             }
-            await reqGET(`${ip}/pw?relay=${e.target.id}`);
             setTimeout(() => getStat(ip), 1000);
         });
     });
