@@ -191,7 +191,25 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
 .power-action:hover:not(:disabled) { transform: translateY(-3px); box-shadow: 0 0 0 13px rgba(184, 228, 93, 0.12); }
 .power-action[data-power-mode="shutdown"] { background: #f1c46f; }
 .power-action[data-power-mode="force-shutdown"] { background: #ed8b7d; }
-.power-symbol { font-size: 2.5rem; line-height: 1; }
+.power-symbol {
+    position: relative;
+    width: 34px;
+    height: 34px;
+    border: 4px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+}
+.power-symbol::before {
+    content: "";
+    position: absolute;
+    top: -7px;
+    left: 50%;
+    width: 4px;
+    height: 19px;
+    border-radius: 3px;
+    background: currentColor;
+    transform: translateX(-50%);
+}
 
 .computer-settings { display: grid; grid-template-columns: 1fr 1.6fr; gap: 0 16px; padding: 24px 26px 26px; }
 .computer-settings label { display: grid; align-content: start; gap: 7px; font-size: 0.83rem; font-weight: 700; }
