@@ -3,21 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP WAKE PC</title>
+    <meta name="theme-color" content="#14231d">
+    <title>ESP Wake</title>
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-    <main>
-        <label for="ipserver">Server IP:</label>
-        <input type="text" id="ipserver" placeholder="Enter IP address">
-        <button id="saveip">Save Server IP</button>
+    <main class="app-shell">
+        <header class="app-header">
+            <div>
+                <p class="eyebrow">Remote power control</p>
+                <h1>ESP Wake</h1>
+            </div>
+            <button id="add-computer" class="add-button" type="button"><span aria-hidden="true">+</span> Add computer</button>
+        </header>
+
+        <section aria-labelledby="computers-title">
+            <div class="list-heading">
+                <div>
+                    <p class="section-label">Devices</p>
+                    <h2 id="computers-title">Your computers</h2>
+                </div>
+                <p>Each computer can use its own ESP32 address and password.</p>
+            </div>
+            <div id="computers-list" class="computers-list"></div>
+            <div id="empty-state" class="empty-state" hidden>
+                <h2>No computers yet</h2>
+                <p>Add a computer to configure its ESP32 connection.</p>
+            </div>
+        </section>
     </main>
 
-    <header>
-        <h1>ESP Wake PC</h1>
-    </header>
+    <template id="computer-template">
+        <article class="computer-card">
+            <header class="computer-header">
+                <div>
+                    <p class="section-label">Computer</p>
+                    <h2 data-role="display-name">Computer</h2>
+                </div>
+                <div class="card-tools">
+                    <div class="connection-pill" data-role="connection-pill" data-state="idle">
+                        <span class="status-dot" aria-hidden="true"></span>
+                        <span data-role="connection-label">Not configured</span>
+                    </div>
+                    <div class="order-controls" aria-label="Reorder computer">
+                        <button class="icon-button order-button" data-action="move-up" type="button" aria-label="Move computer up" title="Move computer up">↑</button>
+                        <button class="icon-button order-button" data-action="move-down" type="button" aria-label="Move computer down" title="Move computer down">↓</button>
+                    </div>
+                    <button class="icon-button danger-button" data-action="delete" type="button" aria-label="Delete computer" title="Delete computer">×</button>
+                </div>
+            </header>
 
-    <div id="buttons-container"></div>
+            <div class="computer-overview">
+                <div class="device-summary">
+                    <div class="device-signal" data-role="device-signal" data-state="unknown" aria-hidden="true">
+                        <span class="signal-light"></span>
+                        <span data-role="signal-label">Unknown</span>
+                    </div>
+                    <p class="device-status" data-role="device-status" aria-live="polite">No status available</p>
+                    <p class="last-updated" data-role="last-updated">Enter an ESP32 address to begin.</p>
+                    <div class="connection-help" data-role="connection-help" hidden>
+                        <p data-role="connection-help-text"></p>
+                        <button class="certificate-button" data-action="trust-certificate" type="button">Open security check</button>
+                    </div>
+                </div>
+                <button class="power-action" data-action="power" type="button" disabled>
+                    <span class="power-symbol" aria-hidden="true">⏻</span>
+                    <span data-role="power-label">Waiting</span>
+                </button>
+            </div>
+
+            <form data-role="settings-form" class="computer-settings">
+                <label>Computer name
+                    <input data-field="name" type="text" autocomplete="off" placeholder="Office PC">
+                </label>
+                <label>ESP32 address or proxy URL
+                    <input data-field="base-url" type="text" autocomplete="url" spellcheck="false" placeholder="192.168.1.28:2443 or https://.../port/32443">
+                </label>
+                <label>New control password
+                    <input data-field="password" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                </label>
+                <p class="field-note">The saved password is never displayed. Enter a value only to add or replace it.</p>
+                <div class="form-actions">
+                    <button class="primary-button" type="submit">Update</button>
+                    <button class="secondary-button" data-action="config" type="button">Open configuration</button>
+                    <button class="icon-button" data-action="refresh" type="button" aria-label="Refresh status" title="Refresh status">↻</button>
+                </div>
+                <p class="form-message" data-role="message" role="status" aria-live="polite"></p>
+            </form>
+        </article>
+    </template>
     
     <script src="js/script.js"></script>
 </body>
