@@ -1,12 +1,13 @@
-const CACHE_NAME = "esp-wake-shell-v2";
+const CACHE_NAME = "esp-wake-shell-v4";
 const APP_SHELL = [
     "./",
     "./index.html",
-    "./css/styles.css?v=20260912-7",
+    "./css/styles.css?v=20260912-8",
     "./js/script.js?v=20260912-3",
-    "./manifest.webmanifest",
-    "./icons/esp-wake-192.png",
-    "./icons/esp-wake-512.png",
+    "./manifest.webmanifest?v=3",
+    "./icons/esp-wake-192.png?v=3",
+    "./icons/esp-wake-512.png?v=3",
+    "./icons/power-button.png?v=3",
 ];
 
 self.addEventListener("install", (event) => {

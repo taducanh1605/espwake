@@ -204,23 +204,11 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
 .power-action[data-power-mode="shutdown"] { background: #f1c46f; }
 .power-action[data-power-mode="force-shutdown"] { background: #ed8b7d; }
 .power-symbol {
-    position: relative;
     width: 34px;
     height: 34px;
-    border: 4px solid var(--forest-strong);
-    border-top-color: transparent;
-    border-radius: 50%;
-}
-.power-symbol::before {
-    content: "";
-    position: absolute;
-    top: -7px;
-    left: 50%;
-    width: 4px;
-    height: 19px;
-    border-radius: 3px;
-    background: var(--forest-strong);
-    transform: translateX(-50%);
+    object-fit: contain;
+    forced-color-adjust: none;
+    filter: none !important;
 }
 
 .computer-settings { display: grid; grid-template-columns: 1fr 1.6fr; gap: 0 16px; padding: 24px 26px 26px; }
