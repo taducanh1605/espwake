@@ -205,6 +205,10 @@ function renderProfiles() {
         cardPart(card, "display-name").textContent = profile.name;
         card.querySelector('[data-field="name"]').value = profile.name;
         card.querySelector('[data-field="base-url"]').value = profile.baseUrl;
+        const passwordInput = card.querySelector('[data-field="password"]');
+        const passwordTooltip = cardPart(card, "password-tooltip");
+        passwordTooltip.id = `password-help-${profile.id}`;
+        passwordInput.setAttribute("aria-describedby", passwordTooltip.id);
         card.querySelector('[data-action="clear-password"]').disabled = !profile.password;
         card.querySelector('[data-action="move-up"]').disabled = index === 0;
         card.querySelector('[data-action="move-down"]').disabled = index === profiles.length - 1;
@@ -481,3 +485,11 @@ document.addEventListener("visibilitychange", () => {
         emptyState.querySelector("p").textContent = "Saved settings could not be loaded in this browser.";
     }
 })();
+
+if ("serviceWorker" in navigator && /^https?:$/.test(window.location.protocol)) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./service-worker.js").catch((error) => {
+            console.error("Service worker registration failed:", error);
+        });
+    });
+}

@@ -4,8 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#14231d">
+    <meta name="color-scheme" content="light only">
+    <meta name="application-name" content="ESP Wake">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>ESP Wake</title>
-    <link rel="stylesheet" href="css/styles.css?v=20260912-2">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="icons/esp-wake-192.png" type="image/png">
+    <link rel="apple-touch-icon" href="icons/esp-wake-192.png">
+    <link rel="stylesheet" href="css/styles.css?v=20260912-7">
 </head>
 <body>
     <main class="app-shell">
@@ -14,37 +22,29 @@
                 <p class="eyebrow">Remote power control</p>
                 <h1>ESP Wake</h1>
             </div>
-            <button id="add-computer" class="add-button" type="button"><span aria-hidden="true">+</span> Add computer</button>
         </header>
 
-        <section aria-labelledby="computers-title">
-            <div class="list-heading">
-                <div>
-                    <p class="section-label">Devices</p>
-                    <h2 id="computers-title">Your computers</h2>
-                </div>
-                <p>Each computer can use its own ESP32 address and password.</p>
-            </div>
+        <section aria-label="Computers">
             <div id="computers-list" class="computers-list"></div>
             <div id="empty-state" class="empty-state" hidden>
                 <h2>No computers yet</h2>
                 <p>Add a computer to configure its ESP32 connection.</p>
             </div>
+            <button id="add-computer" class="add-button add-computer-footer" type="button"><span aria-hidden="true">+</span> Add computer</button>
         </section>
     </main>
 
     <template id="computer-template">
         <article class="computer-card">
             <header class="computer-header">
-                <div>
-                    <p class="section-label">Computer</p>
+                <div class="computer-identity">
                     <h2 data-role="display-name">Computer</h2>
-                </div>
-                <div class="card-tools">
                     <div class="connection-pill" data-role="connection-pill" data-state="idle">
                         <span class="status-dot" aria-hidden="true"></span>
                         <span data-role="connection-label">Not configured</span>
                     </div>
+                </div>
+                <div class="card-tools">
                     <div class="order-controls" aria-label="Reorder computer">
                         <button class="icon-button order-button" data-action="move-up" type="button" aria-label="Move computer up" title="Move computer up">↑</button>
                         <button class="icon-button order-button" data-action="move-down" type="button" aria-label="Move computer down" title="Move computer down">↓</button>
@@ -54,11 +54,11 @@
             </header>
 
             <div class="computer-overview">
+                <div class="device-signal" data-role="device-signal" data-state="unknown" aria-hidden="true">
+                    <span class="signal-light"></span>
+                    <span data-role="signal-label">Unknown</span>
+                </div>
                 <div class="device-summary">
-                    <div class="device-signal" data-role="device-signal" data-state="unknown" aria-hidden="true">
-                        <span class="signal-light"></span>
-                        <span data-role="signal-label">Unknown</span>
-                    </div>
                     <p class="device-status" data-role="device-status" aria-live="polite">No status available</p>
                     <p class="last-updated" data-role="last-updated">Enter an ESP32 address to begin.</p>
                     <div class="connection-help" data-role="connection-help" hidden>
@@ -79,11 +79,12 @@
                 <label>ESP32 address or proxy URL
                     <input data-field="base-url" type="text" autocomplete="url" spellcheck="false" placeholder="192.168.1.28:2443 or https://.../port/32443">
                 </label>
-                <label>New control password
+                <label class="password-field">
+                    <span class="password-label">New control password <span class="help-mark" aria-hidden="true">i</span></span>
                     <input data-field="password" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                    <span class="password-tooltip" data-role="password-tooltip" role="tooltip">The saved password is hidden. To remove password protection, first open ESP32 configuration and select “Remove the saved control password.” Then return here and click “Clear saved password.”</span>
                 </label>
                 <div class="password-storage-row">
-                    <p class="field-note">The saved password is never displayed. Clear protection in ESP32 configuration first, then clear the browser copy here.</p>
                     <button class="clear-password-button" data-action="clear-password" type="button">Clear saved password</button>
                 </div>
                 <div class="form-actions">
@@ -96,6 +97,6 @@
         </article>
     </template>
     
-    <script src="js/script.js?v=20260912"></script>
+    <script src="js/script.js?v=20260912-3"></script>
 </body>
 </html>

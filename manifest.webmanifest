@@ -1,0 +1,27 @@
+{
+  "id": "./",
+  "name": "ESP Wake",
+  "short_name": "ESP Wake",
+  "description": "Remote power control for computers connected to ESP32 Wake devices.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#edf1ec",
+  "theme_color": "#14231d",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    {
+      "src": "icons/esp-wake-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/esp-wake-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
