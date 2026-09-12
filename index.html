@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#14231d">
     <title>ESP Wake</title>
-    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/styles.css?v=20260912">
 </head>
 <body>
     <main class="app-shell">
@@ -82,7 +82,10 @@
                 <label>New control password
                     <input data-field="password" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
                 </label>
-                <p class="field-note">The saved password is never displayed. Enter a value only to add or replace it.</p>
+                <div class="password-storage-row">
+                    <p class="field-note">The saved password is never displayed. Clear protection in ESP32 configuration first, then clear the browser copy here.</p>
+                    <button class="clear-password-button" data-action="clear-password" type="button">Clear saved password</button>
+                </div>
                 <div class="form-actions">
                     <button class="primary-button" type="submit">Update</button>
                     <button class="secondary-button" data-action="config" type="button">Open configuration</button>
@@ -93,6 +96,6 @@
         </article>
     </template>
     
-    <script src="js/script.js"></script>
+    <script src="js/script.js?v=20260912"></script>
 </body>
 </html>

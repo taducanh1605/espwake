@@ -108,11 +108,25 @@ async function request(profile, path, options = {}) {
             ...options,
             signal: controller.signal,
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+            const error = new Error(`HTTP ${response.status}`);
+            error.status = response.status;
+            throw error;
+        }
         return response;
     } finally {
         clearTimeout(timeout);
     }
+}
+
+function authenticatedRequestOptions(profile) {
+    return profile.password
+        ? {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+            body: new URLSearchParams({ password: profile.password }),
+        }
+        : { method: "GET" };
 }
 
 function setConnection(card, state, label) {
@@ -191,6 +205,7 @@ function renderProfiles() {
         cardPart(card, "display-name").textContent = profile.name;
         card.querySelector('[data-field="name"]').value = profile.name;
         card.querySelector('[data-field="base-url"]').value = profile.baseUrl;
+        card.querySelector('[data-action="clear-password"]').disabled = !profile.password;
         card.querySelector('[data-action="move-up"]').disabled = index === 0;
         card.querySelector('[data-action="move-down"]').disabled = index === profiles.length - 1;
         computersList.appendChild(card);
@@ -252,7 +267,7 @@ async function refreshProfile(profile, { quiet = false } = {}) {
     if (!quiet) refreshButton.classList.add("is-loading");
 
     try {
-        const response = await request(profile, "stt");
+        const response = await request(profile, "stt", authenticatedRequestOptions(profile));
         const data = await response.json();
         const device = Object.values(data)[0];
         if (!device || typeof device.stat !== "string") throw new Error("Invalid status response");
@@ -264,10 +279,17 @@ async function refreshProfile(profile, { quiet = false } = {}) {
     } catch (error) {
         console.error(`Status request failed for ${profile.name}:`, error);
         renderPowerState(card, "unknown");
-        setConnection(card, "error", "ESP Offline");
-        cardPart(card, "device-status").textContent = "Cannot reach this ESP32";
-        cardPart(card, "last-updated").textContent = "Check its address, proxy, or network connection.";
-        showConnectionHelp(card, profile);
+        if (error.status === 401 || error.status === 403) {
+            setConnection(card, "error", "Authentication failed");
+            cardPart(card, "device-status").textContent = "Cannot authenticate with this ESP32";
+            cardPart(card, "last-updated").textContent = "Check or clear the saved control password.";
+            hideConnectionHelp(card);
+        } else {
+            setConnection(card, "error", "ESP Offline");
+            cardPart(card, "device-status").textContent = "Cannot reach this ESP32";
+            cardPart(card, "last-updated").textContent = "Check its address, proxy, or network connection.";
+            showConnectionHelp(card, profile);
+        }
     } finally {
         requestsInFlight.delete(profile.id);
         refreshButton.classList.remove("is-loading");
@@ -312,14 +334,7 @@ async function sendPowerCommand(profile, card) {
     message.classList.remove("is-error");
 
     try {
-        const options = profile.password
-            ? {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-                body: new URLSearchParams({ password: profile.password }),
-            }
-            : { method: "GET" };
-        await request(profile, path, options);
+        await request(profile, path, authenticatedRequestOptions(profile));
         cardPart(card, "last-updated").textContent = "Command sent. Waiting for the next status update...";
         setTimeout(() => refreshProfile(profile), 1200);
     } catch (error) {
@@ -380,6 +395,7 @@ computersList.addEventListener("submit", async (event) => {
         cardPart(card, "display-name").textContent = profile.name;
         form.querySelector('[data-field="base-url"]').value = profile.baseUrl;
         form.querySelector('[data-field="password"]').value = "";
+        card.querySelector('[data-action="clear-password"]').disabled = !profile.password;
         message.textContent = newPassword
             ? "Address and control password updated."
             : "Settings updated; the saved password was kept.";
@@ -410,6 +426,21 @@ computersList.addEventListener("click", async (event) => {
         }
     } else if (button.dataset.action === "trust-certificate") {
         window.open(profile.baseUrl, "_blank", "noopener,noreferrer");
+    } else if (button.dataset.action === "clear-password") {
+        if (!profile.password || !window.confirm(`Clear the saved control password for ${profile.name} from this browser? This does not change password protection on the ESP32.`)) return;
+        const previousPassword = profile.password;
+        profile.password = "";
+        try {
+            await saveProfiles();
+            card.querySelector('[data-field="password"]').value = "";
+            button.disabled = true;
+            message.textContent = "Browser password cleared. Future commands will use GET without a password.";
+            message.classList.remove("is-error");
+        } catch (error) {
+            profile.password = previousPassword;
+            message.textContent = "The saved control password could not be cleared.";
+            message.classList.add("is-error");
+        }
     } else if (button.dataset.action === "move-up") {
         await moveProfile(profile, -1);
     } else if (button.dataset.action === "move-down") {

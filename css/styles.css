@@ -195,7 +195,7 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
 
 .computer-settings { display: grid; grid-template-columns: 1fr 1.6fr; gap: 0 16px; padding: 24px 26px 26px; }
 .computer-settings label { display: grid; align-content: start; gap: 7px; font-size: 0.83rem; font-weight: 700; }
-.computer-settings label:nth-child(3), .field-note, .form-actions, .form-message { grid-column: 1 / -1; }
+.computer-settings label:nth-child(3), .password-storage-row, .form-actions, .form-message { grid-column: 1 / -1; }
 input {
     width: 100%;
     min-height: 46px;
@@ -206,7 +206,19 @@ input {
     color: var(--ink);
 }
 input::placeholder { color: #97a098; }
-.field-note { margin: 7px 0 18px; color: var(--muted); font-size: 0.76rem; line-height: 1.5; }
+.password-storage-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 7px 0 18px; }
+.field-note { margin: 0; color: var(--muted); font-size: 0.76rem; line-height: 1.5; }
+.clear-password-button {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: 8px 12px;
+    border: 1px solid rgba(198, 77, 68, 0.34);
+    border-radius: 6px;
+    background: #fff7f5;
+    color: var(--red);
+    font-size: 0.76rem;
+    font-weight: 800;
+}
 .form-actions { justify-content: flex-start; flex-wrap: wrap; }
 .form-message { min-height: 20px; margin: 13px 0 0; color: var(--muted); font-size: 0.8rem; }
 .form-message.is-error { color: var(--red); }
@@ -228,6 +240,7 @@ input::placeholder { color: #97a098; }
     .power-action { flex-basis: 112px; width: 112px; }
     .computer-settings { grid-template-columns: 1fr; padding: 22px 18px 24px; }
     .computer-settings label { grid-column: 1; margin-bottom: 16px; }
+    .password-storage-row { align-items: stretch; flex-direction: column; }
     .form-actions { align-items: stretch; flex-direction: column; }
 }
 
