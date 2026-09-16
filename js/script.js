@@ -11,6 +11,7 @@ const addComputerButton = document.getElementById("add-computer");
 let database;
 let profiles = [];
 let pollTimer;
+let openSettingsProfileId = null;
 const requestsInFlight = new Set();
 
 function openDatabase() {
@@ -97,6 +98,19 @@ function findCard(id) {
 
 function cardPart(card, role) {
     return card.querySelector(`[data-role="${role}"]`);
+}
+
+function setSettingsVisible(card, visible) {
+    const form = cardPart(card, "settings-form");
+    const configureButton = card.querySelector('[data-action="configure"]');
+    form.hidden = !visible;
+    form.classList.remove(!visible ? "show" : "hide")
+    form.classList.add(!visible ? "hide" : "show")
+    configureButton.setAttribute("aria-expanded", String(!visible));
+    configureButton.textContent = visible ? "×" : "⚙";
+    configureButton.setAttribute("aria-label", !visible ? "Close computer settings" : "Configure computer");
+    configureButton.title = !visible ? "Close computer settings" : "Configure computer";
+    configureButton.classList.toggle("danger-button", !visible);
 }
 
 async function request(profile, path, options = {}) {
@@ -212,6 +226,7 @@ function renderProfiles() {
         card.querySelector('[data-action="clear-password"]').disabled = !profile.password;
         card.querySelector('[data-action="move-up"]').disabled = index === 0;
         card.querySelector('[data-action="move-down"]').disabled = index === profiles.length - 1;
+        setSettingsVisible(card, profile.id === openSettingsProfileId);
         computersList.appendChild(card);
     });
 }
@@ -421,6 +436,9 @@ computersList.addEventListener("click", async (event) => {
         await sendPowerCommand(profile, card);
     } else if (button.dataset.action === "refresh") {
         await refreshProfile(profile);
+    } else if (button.dataset.action === "configure") {
+        openSettingsProfileId = cardPart(card, "settings-form").hidden ? profile.id : null;
+        setSettingsVisible(card, openSettingsProfileId === profile.id);
     } else if (button.dataset.action === "config") {
         try {
             openConfiguration(profile);
@@ -452,6 +470,7 @@ computersList.addEventListener("click", async (event) => {
     } else if (button.dataset.action === "delete") {
         if (!window.confirm(`Delete ${profile.name}?`)) return;
         profiles = profiles.filter((item) => item.id !== profile.id);
+        if (openSettingsProfileId === profile.id) openSettingsProfileId = null;
         requestsInFlight.delete(profile.id);
         await saveProfiles();
         renderProfiles();
@@ -463,6 +482,7 @@ addComputerButton.addEventListener("click", async () => {
     const profile = createProfile({ name: `Computer ${profiles.length + 1}` });
     profiles.push(profile);
     await saveProfiles();
+    openSettingsProfileId = profile.id;
     renderProfiles();
     refreshAll();
     findCard(profile.id)?.querySelector('[data-field="name"]').focus();

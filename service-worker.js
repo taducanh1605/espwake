@@ -1,4 +1,4 @@
-const CACHE_NAME = "esp-wake-shell-v6";
+const CACHE_NAME = "esp-wake-shell-v7";
 const APP_SHELL = [
     "./",
     "./index.html",

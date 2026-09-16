@@ -214,7 +214,9 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
 .computer-settings { display: grid; grid-template-columns: 1fr 1.6fr; gap: 0 16px; padding: 24px 26px 26px; }
 .computer-settings label { display: grid; align-content: start; gap: 7px; font-size: 0.83rem; font-weight: 700; }
 .computer-settings label:nth-child(3), .password-storage-row, .form-actions, .form-message { grid-column: 1 / -1; }
-.password-field { position: relative; }
+.computer-settings.hide { transform: scaleY(0); transform-origin: top; opacity: 0; transition: transform 0.3s ease, opacity 0.3s ease; max-height: 0; }
+.computer-settings.show { transform: scaleY(1); transform-origin: top; opacity: 1; transition: transform 0.8s ease, opacity 0.8s ease; }
+.password-field { position: relative; padding-block: 5px;}
 .password-label { display: inline-flex; align-items: center; gap: 6px; }
 .help-mark {
     display: inline-grid;
@@ -279,6 +281,17 @@ input::placeholder { color: #97a098; }
 .form-actions { justify-content: flex-start; flex-wrap: wrap; }
 .form-message { min-height: 20px; margin: 13px 0 0; color: var(--muted); font-size: 0.8rem; }
 .form-message.is-error { color: var(--red); }
+.delete-button {
+    justify-self: start;
+    min-height: 38px;
+    /* margin-top: 8px; */
+    padding: 4px 12px;
+    border: 1px solid rgba(198, 77, 68, 0.34);
+    border-radius: 6px;
+    background: #fff7f5;
+    /* font-size: 0.76rem; */
+    font-weight: 800;
+}
 .empty-state { padding: 48px 24px; border: 1px dashed #b7c1b9; border-radius: 8px; text-align: center; }
 .empty-state p { margin-bottom: 0; color: var(--muted); }
 
@@ -307,7 +320,7 @@ input::placeholder { color: #97a098; }
     .computer-settings { grid-template-columns: 1fr; padding: 22px 18px 24px; }
     .computer-settings label { grid-column: 1; margin-bottom: 16px; }
     .password-storage-row { align-items: stretch; flex-direction: column; }
-    .form-actions { display: grid; grid-template-columns: max-content minmax(0, 1fr) 44px; gap: 6px; }
+    .form-actions { display: grid; grid-template-columns: max-content minmax(0, 1fr) 44px; gap: 6px; grid-auto-flow: column; }
     .form-actions .primary-button, .form-actions .secondary-button { min-width: 0; padding-inline: 10px; font-size: 0.78rem; line-height: 1.2; }
 }
 
