@@ -107,7 +107,7 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
     font-size: 1.4rem;
 }
 .order-button { font-size: 1.15rem; }
-.danger-button { color: var(--red); font-size: 1.55rem; }
+.danger-button { color: var(--red); }
 .icon-button.is-loading { animation: rotate 900ms linear infinite; }
 
 .computer-overview {
@@ -278,7 +278,17 @@ input::placeholder { color: #97a098; }
     font-size: 0.76rem;
     font-weight: 800;
 }
-.form-actions { justify-content: flex-start; flex-wrap: wrap; }
+.form-actions { justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
+.form-actions > button { min-width: 0; max-width: 100%; }
+.force-shutdown-button {
+    min-height: 38px;
+    padding: 8px 12px;
+    border: 1px solid rgba(198, 77, 68, 0.34);
+    border-radius: 6px;
+    background: #fff7f5;
+    color: var(--red);
+    font-weight: 800;
+}
 .form-message { min-height: 20px; margin: 13px 0 0; color: var(--muted); font-size: 0.8rem; }
 .form-message.is-error { color: var(--red); }
 .delete-button {
@@ -320,8 +330,8 @@ input::placeholder { color: #97a098; }
     .computer-settings { grid-template-columns: 1fr; padding: 22px 18px 24px; }
     .computer-settings label { grid-column: 1; margin-bottom: 16px; }
     .password-storage-row { align-items: stretch; flex-direction: column; }
-    .form-actions { display: grid; grid-template-columns: max-content minmax(0, 1fr) 44px; gap: 6px; grid-auto-flow: column; }
-    .form-actions .primary-button, .form-actions .secondary-button { min-width: 0; padding-inline: 10px; font-size: 0.78rem; line-height: 1.2; }
+    .form-actions { gap: 6px; }
+    .form-actions .primary-button, .form-actions .secondary-button, .form-actions .force-shutdown-button { min-width: 0; padding-inline: 10px; font-size: 0.78rem; line-height: 1.2; overflow-wrap: anywhere; }
 }
 
 @media (prefers-reduced-motion: reduce) {

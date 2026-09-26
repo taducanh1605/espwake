@@ -326,12 +326,15 @@ function schedulePolling() {
     }, POLL_INTERVAL_MS);
 }
 
-async function sendPowerCommand(profile, card) {
+async function sendPowerCommand(profile, card, forceShutdown = false) {
     const state = card.dataset.deviceState;
     let path;
     let confirmation;
 
-    if (state === "connected" || state === "up") {
+    if (forceShutdown) {
+        path = "sd";
+        confirmation = `Force shutdown ${profile.name}?`;
+    } else if (state === "connected" || state === "up") {
         path = "pw";
         confirmation = `Send a shutdown command to ${profile.name}?`;
     } else if (state === "powered") {
@@ -345,8 +348,9 @@ async function sendPowerCommand(profile, card) {
 
     if (confirmation && !window.confirm(confirmation)) return;
 
-    const action = card.querySelector('[data-action="power"]');
-    const label = cardPart(card, "power-label");
+    const action = card.querySelector(forceShutdown ? '[data-action="force-shutdown"]' : '[data-action="power"]');
+    const label = forceShutdown ? action : cardPart(card, "power-label");
+    const originalLabel = label.textContent;
     const message = cardPart(card, "message");
     action.disabled = true;
     label.textContent = "Sending...";
@@ -363,6 +367,11 @@ async function sendPowerCommand(profile, card) {
             : "The power command could not be sent.";
         message.classList.add("is-error");
         renderPowerState(card, state);
+    } finally {
+        if (forceShutdown) {
+            action.disabled = false;
+            label.textContent = originalLabel;
+        }
     }
 }
 
@@ -434,6 +443,8 @@ computersList.addEventListener("click", async (event) => {
 
     if (button.dataset.action === "power") {
         await sendPowerCommand(profile, card);
+    } else if (button.dataset.action === "force-shutdown") {
+        await sendPowerCommand(profile, card, true);
     } else if (button.dataset.action === "refresh") {
         await refreshProfile(profile);
     } else if (button.dataset.action === "configure") {
