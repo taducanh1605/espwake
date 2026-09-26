@@ -53,14 +53,14 @@ h1, h2 { font-family: "Space Grotesk", sans-serif; letter-spacing: 0; }
 h1 { margin-bottom: 0; font-size: clamp(2rem, 8vw, 3.4rem); line-height: 0.95; }
 h2 { margin-bottom: 0; font-size: 1.35rem; }
 
-.add-button, .primary-button, .secondary-button {
+.add-button {
     padding: 11px 18px;
     border-radius: 6px;
     font-weight: 700;
 }
-.add-button, .primary-button { background: var(--forest); color: #fff; }
+.add-button { background: var(--forest); color: #fff; }
 .add-button span { margin-right: 7px; font-size: 1.2rem; }
-.secondary-button { border: 1px solid var(--line); background: #f3f5f2; color: var(--forest); }
+.primary-button, .secondary-button { border: 1px solid var(--line); background: #f3f5f2; color: var(--forest); font-size: 1.25rem; padding: 8px 12px; }
 
 .computers-list { display: grid; gap: 18px; }
 .add-computer-footer { display: block; margin: 18px auto 0; }
@@ -280,28 +280,16 @@ input::placeholder { color: #97a098; }
 }
 .form-actions { justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
 .form-actions > button { min-width: 0; max-width: 100%; }
-.force-shutdown-button {
-    min-height: 38px;
+.primary-button, .secondary-button, .force-shutdown-button, .delete-button {
     padding: 8px 12px;
     border: 1px solid rgba(198, 77, 68, 0.34);
     border-radius: 6px;
     background: #fff7f5;
-    color: var(--red);
     font-weight: 800;
+    font-size: 1.25rem;
 }
 .form-message { min-height: 20px; margin: 13px 0 0; color: var(--muted); font-size: 0.8rem; }
 .form-message.is-error { color: var(--red); }
-.delete-button {
-    justify-self: start;
-    min-height: 38px;
-    /* margin-top: 8px; */
-    padding: 4px 12px;
-    border: 1px solid rgba(198, 77, 68, 0.34);
-    border-radius: 6px;
-    background: #fff7f5;
-    /* font-size: 0.76rem; */
-    font-weight: 800;
-}
 .empty-state { padding: 48px 24px; border: 1px dashed #b7c1b9; border-radius: 8px; text-align: center; }
 .empty-state p { margin-bottom: 0; color: var(--muted); }
 
@@ -331,7 +319,7 @@ input::placeholder { color: #97a098; }
     .computer-settings label { grid-column: 1; margin-bottom: 16px; }
     .password-storage-row { align-items: stretch; flex-direction: column; }
     .form-actions { gap: 6px; }
-    .form-actions .primary-button, .form-actions .secondary-button, .form-actions .force-shutdown-button { min-width: 0; padding-inline: 10px; font-size: 0.78rem; line-height: 1.2; overflow-wrap: anywhere; }
+    /* .form-actions .primary-button, .form-actions .secondary-button, .form-actions .force-shutdown-button { min-width: 0; padding-inline: 10px; font-size: 0.78rem; line-height: 1.2; overflow-wrap: anywhere; } */
 }
 
 @media (prefers-reduced-motion: reduce) {
