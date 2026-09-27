@@ -379,8 +379,18 @@ async function sendPowerCommand(profile, card, forceShutdown = false) {
 function openConfiguration(profile) {
     if (!profile.baseUrl) throw new Error("Enter and save an ESP32 address first.");
 
+    let baseUrl = profile.baseUrl;
+
+    if (profile.baseUrl.indexOf("https://") > -1) {
+        let tmp = profile.baseUrl.split(":");
+        if (tmp.length > 2) {
+            let port = +tmp[tmp.length - 1] - 1;
+            baseUrl = 'http:' + tmp.slice(1, tmp.length - 1).join(":") + ":" + port;
+        } 
+    }
+
     if (!profile.password) {
-        window.open(profile.baseUrl, "_blank", "noopener,noreferrer");
+        window.open(baseUrl, "_blank", "noopener,noreferrer");
         return;
     }
 
@@ -390,7 +400,7 @@ function openConfiguration(profile) {
 
     const loginForm = document.createElement("form");
     loginForm.method = "POST";
-    loginForm.action = endpoint(profile, "login");
+    loginForm.action = endpoint(profile, "login").replaceAll(profile.baseUrl, baseUrl);
     loginForm.target = targetName;
     loginForm.hidden = true;
 
