@@ -2,6 +2,7 @@ const DB_NAME = "ESPWakeDB";
 const STORE_NAME = "settings";
 const POLL_INTERVAL_MS = 7000;
 const REQUEST_TIMEOUT_MS = 12000;
+const DEFAULT_PASSWORD = "12345678";
 
 const computersList = document.getElementById("computers-list");
 const emptyState = document.getElementById("empty-state");
@@ -418,6 +419,7 @@ computersList.addEventListener("submit", async (event) => {
         profile.baseUrl = normalizeBaseUrl(form.querySelector('[data-field="base-url"]').value);
         const newPassword = form.querySelector('[data-field="password"]').value;
         if (newPassword) profile.password = newPassword;
+        else if (!profile.password) profile.password = DEFAULT_PASSWORD;
 
         await saveProfiles();
         cardPart(card, "display-name").textContent = profile.name;
@@ -462,7 +464,7 @@ computersList.addEventListener("click", async (event) => {
     } else if (button.dataset.action === "clear-password") {
         if (!profile.password || !window.confirm(`Clear the saved control password for ${profile.name} from this browser? This does not change password protection on the ESP32.`)) return;
         const previousPassword = profile.password;
-        profile.password = "";
+        profile.password = DEFAULT_PASSWORD;
         try {
             await saveProfiles();
             card.querySelector('[data-field="password"]').value = "";
