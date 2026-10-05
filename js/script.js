@@ -381,14 +381,6 @@ function openConfiguration(profile) {
 
     let baseUrl = profile.baseUrl;
 
-    // if (profile.baseUrl.indexOf("https://") > -1) {
-    //     let tmp = profile.baseUrl.split(":");
-    //     if (tmp.length > 2) {
-    //         let port = +tmp[tmp.length - 1] - 1;
-    //         baseUrl = 'http:' + tmp.slice(1, tmp.length - 1).join(":") + ":" + port;
-    //     } 
-    // }
-
     if (!profile.password) {
         window.open(baseUrl, "_blank", "noopener,noreferrer");
         return;
