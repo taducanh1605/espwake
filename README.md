@@ -32,5 +32,17 @@ static-web-project
 - Modify `styles.css` to change the appearance of the application.
 - Update `script.js` to add or change functionality.
 
+## Configuration Login
+
+The configuration button opens a fresh window and posts the saved control password from that window to the ESP32 login endpoint. The form stays attached until navigation, and configuration URLs retain a trailing slash. Proxy path prefixes are preserved. Passwords are not placed in URLs, and the new window does not retain an opener.
+
+After deploying changes to GitHub Pages, reload the dashboard to receive the updated script/service worker. Local edits do not change the published site automatically.
+
+Run the focused regression tests with Node.js:
+
+```shell
+node --test tests/configuration-login.test.cjs
+```
+
 ## License
 This project is open-source and available under the MIT License.

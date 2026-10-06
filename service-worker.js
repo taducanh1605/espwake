@@ -1,9 +1,9 @@
-const CACHE_NAME = "esp-wake-shell-v8.2";
+const CACHE_NAME = "esp-wake-shell-v8.3";
 const APP_SHELL = [
     "./",
     "./index.html",
     "./css/styles.css?v=20260912-8",
-    "./js/script.js?v=20260912-3",
+    "./js/script.js?v=20261007-login",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",

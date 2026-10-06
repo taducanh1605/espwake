@@ -379,31 +379,32 @@ async function sendPowerCommand(profile, card, forceShutdown = false) {
 function openConfiguration(profile) {
     if (!profile.baseUrl) throw new Error("Enter and save an ESP32 address first.");
 
-    let baseUrl = profile.baseUrl;
+    const baseUrl = normalizeBaseUrl(profile.baseUrl);
 
     if (!profile.password) {
-        window.open(baseUrl, "_blank", "noopener,noreferrer");
+        window.open(`${baseUrl}/`, "_blank", "noopener,noreferrer");
         return;
     }
 
-    const targetName = `esp-config-${profile.id}`;
-    const configWindow = window.open("about:blank", targetName);
+    const configWindow = window.open("about:blank", "_blank");
     if (!configWindow) throw new Error("Allow pop-ups to open the configuration page.");
 
-    const loginForm = document.createElement("form");
+    const popupDocument = configWindow.document;
+    const loginForm = popupDocument.createElement("form");
     loginForm.method = "POST";
-    loginForm.action = endpoint(profile, "login").replaceAll(profile.baseUrl, baseUrl);
-    loginForm.target = targetName;
+    loginForm.enctype = "application/x-www-form-urlencoded";
+    loginForm.action = endpoint({ baseUrl }, "login");
+    loginForm.target = "_self";
     loginForm.hidden = true;
 
-    const passwordField = document.createElement("input");
+    const passwordField = popupDocument.createElement("input");
     passwordField.type = "hidden";
     passwordField.name = "password";
     passwordField.value = profile.password;
     loginForm.appendChild(passwordField);
-    document.body.appendChild(loginForm);
+    popupDocument.body.appendChild(loginForm);
+    configWindow.opener = null;
     loginForm.submit();
-    loginForm.remove();
 }
 
 computersList.addEventListener("submit", async (event) => {
