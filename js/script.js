@@ -381,29 +381,32 @@ function openConfiguration(profile) {
 
     const baseUrl = normalizeBaseUrl(profile.baseUrl);
 
+    const installedApp = window.matchMedia?.("(display-mode: standalone), (display-mode: fullscreen)").matches
+        || navigator.standalone === true;
+
     if (!profile.password) {
         window.open(`${baseUrl}/`, "_blank", "noopener,noreferrer");
         return;
     }
 
-    const configWindow = window.open("about:blank", "_blank");
+    const configWindow = installedApp ? window : window.open("about:blank", "_blank");
     if (!configWindow) throw new Error("Allow pop-ups to open the configuration page.");
 
-    const popupDocument = configWindow.document;
-    const loginForm = popupDocument.createElement("form");
+    const formDocument = installedApp ? document : configWindow.document;
+    const loginForm = formDocument.createElement("form");
     loginForm.method = "POST";
     loginForm.enctype = "application/x-www-form-urlencoded";
     loginForm.action = endpoint({ baseUrl }, "login");
     loginForm.target = "_self";
     loginForm.hidden = true;
 
-    const passwordField = popupDocument.createElement("input");
+    const passwordField = formDocument.createElement("input");
     passwordField.type = "hidden";
     passwordField.name = "password";
     passwordField.value = profile.password;
     loginForm.appendChild(passwordField);
-    popupDocument.body.appendChild(loginForm);
-    configWindow.opener = null;
+    formDocument.body.appendChild(loginForm);
+    if (!installedApp) configWindow.opener = null;
     loginForm.submit();
 }
 
