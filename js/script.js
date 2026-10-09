@@ -410,6 +410,11 @@ function openConfiguration(profile) {
     loginForm.submit();
 }
 
+function openCertificateCheck(profile) {
+    const baseUrl = normalizeBaseUrl(profile.baseUrl);
+    window.open(endpoint({ baseUrl }, "certificate-check"), "_blank", "noopener,noreferrer");
+}
+
 computersList.addEventListener("submit", async (event) => {
     const form = event.target.closest('[data-role="settings-form"]');
     if (!form) return;
@@ -466,7 +471,7 @@ computersList.addEventListener("click", async (event) => {
             message.classList.add("is-error");
         }
     } else if (button.dataset.action === "trust-certificate") {
-        window.open(profile.baseUrl, "_blank", "noopener,noreferrer");
+        openCertificateCheck(profile);
     } else if (button.dataset.action === "clear-password") {
         if (!profile.password || !window.confirm(`Clear the saved control password for ${profile.name} from this browser? This does not change password protection on the ESP32.`)) return;
         const previousPassword = profile.password;
