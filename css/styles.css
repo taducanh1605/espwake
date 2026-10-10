@@ -109,6 +109,25 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
 .order-button { font-size: 1.15rem; }
 .danger-button { color: var(--red); }
 .icon-button.is-loading { animation: rotate 900ms linear infinite; }
+.form-actions > [data-action="config"] {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    flex: 0 0 44px;
+}
+.config-spinner {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    box-sizing: border-box;
+    vertical-align: middle;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: rotate 900ms linear infinite;
+}
 
 .computer-overview {
     display: grid;

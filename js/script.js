@@ -376,7 +376,7 @@ async function sendPowerCommand(profile, card, forceShutdown = false) {
     }
 }
 
-function openConfiguration(profile) {
+function openConfiguration(profile, button) {
     if (!profile.baseUrl) throw new Error("Enter and save an ESP32 address first.");
 
     const baseUrl = normalizeBaseUrl(profile.baseUrl);
@@ -384,30 +384,75 @@ function openConfiguration(profile) {
     const installedApp = window.matchMedia?.("(display-mode: standalone), (display-mode: fullscreen)").matches
         || navigator.standalone === true;
 
-    if (!profile.password) {
+    if (!profile.password && !button) {
         window.open(`${baseUrl}/`, "_blank", "noopener,noreferrer");
         return;
     }
 
-    const configWindow = installedApp ? window : window.open("about:blank", "_blank");
+    if (button?.disabled) return;
+    const configWindow = installedApp && profile.password ? window : window.open("about:blank", "_blank");
     if (!configWindow) throw new Error("Allow pop-ups to open the configuration page.");
 
-    const formDocument = installedApp ? document : configWindow.document;
-    const loginForm = formDocument.createElement("form");
-    loginForm.method = "POST";
-    loginForm.enctype = "application/x-www-form-urlencoded";
-    loginForm.action = endpoint({ baseUrl }, "login");
-    loginForm.target = "_self";
-    loginForm.hidden = true;
+    const stopLoading = button ? showConfigurationLoading(button, configWindow) : () => {};
+    try {
+        if (!profile.password) {
+            configWindow.opener = null;
+            configWindow.location.href = `${baseUrl}/`;
+            return;
+        }
+        const formDocument = installedApp ? document : configWindow.document;
+        const loginForm = formDocument.createElement("form");
+        loginForm.method = "POST";
+        loginForm.enctype = "application/x-www-form-urlencoded";
+        loginForm.action = endpoint({ baseUrl }, "login");
+        loginForm.target = "_self";
+        loginForm.hidden = true;
 
-    const passwordField = formDocument.createElement("input");
-    passwordField.type = "hidden";
-    passwordField.name = "password";
-    passwordField.value = profile.password;
-    loginForm.appendChild(passwordField);
-    formDocument.body.appendChild(loginForm);
-    if (!installedApp) configWindow.opener = null;
-    loginForm.submit();
+        const passwordField = formDocument.createElement("input");
+        passwordField.type = "hidden";
+        passwordField.name = "password";
+        passwordField.value = profile.password;
+        loginForm.appendChild(passwordField);
+        formDocument.body.appendChild(loginForm);
+        if (!installedApp) configWindow.opener = null;
+        loginForm.submit();
+    } catch (error) {
+        stopLoading();
+        throw error;
+    }
+}
+
+function showConfigurationLoading(button, configWindow) {
+    const originalIcon = button.innerHTML;
+    const originalDocument = configWindow.document;
+    const spinner = document.createElement("span");
+    spinner.className = "config-spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    button.replaceChildren(spinner);
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    let interval;
+    let timeout;
+    const stopLoading = () => {
+        clearInterval(interval);
+        clearTimeout(timeout);
+        window.removeEventListener("pageshow", stopLoading);
+        button.innerHTML = originalIcon;
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+    };
+    window.addEventListener("pageshow", stopLoading);
+    if (configWindow !== window) {
+        interval = setInterval(() => {
+            try {
+                if (configWindow.closed || configWindow.document !== originalDocument) stopLoading();
+            } catch {
+                stopLoading();
+            }
+        }, 200);
+    }
+    timeout = setTimeout(stopLoading, 30000);
+    return stopLoading;
 }
 
 function openCertificateCheck(profile) {
@@ -465,7 +510,7 @@ computersList.addEventListener("click", async (event) => {
         setSettingsVisible(card, openSettingsProfileId === profile.id);
     } else if (button.dataset.action === "config") {
         try {
-            openConfiguration(profile);
+            openConfiguration(profile, button);
         } catch (error) {
             message.textContent = error.message;
             message.classList.add("is-error");

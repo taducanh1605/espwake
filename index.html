@@ -13,7 +13,7 @@
     <link rel="manifest" href="manifest.webmanifest?v=3">
     <link rel="icon" href="icons/esp-wake-192.png?v=3" type="image/png">
     <link rel="apple-touch-icon" href="icons/esp-wake-192.png?v=3">
-    <link rel="stylesheet" href="css/styles.css?v=20260912-8">
+    <link rel="stylesheet" href="css/styles.css?v=20261010-config-loading">
 </head>
 <body>
     <main class="app-shell">
@@ -89,7 +89,7 @@
                 </div>
                 <div class="form-actions">
                     <button class="primary-button" type="submit">💾</button>
-                    <button class="secondary-button" data-action="config" type="button">🛠️</button>
+                    <button class="secondary-button" data-action="config" type="button" aria-label="Open ESP32 configuration" title="Open ESP32 configuration">🛠️</button>
                     <button class="danger-button force-shutdown-button" data-action="force-shutdown" type="button">🔌</button>
                     <button class="danger-button delete-button" data-action="delete" type="button">❌</button>
                     <button class="icon-button" data-action="refresh" type="button" aria-label="Refresh status" title="Refresh status">↻</button>
@@ -99,6 +99,6 @@
         </article>
     </template>
     
-    <script src="js/script.js?v=20261009-certificate-check"></script>
+    <script src="js/script.js?v=20261010-config-loading"></script>
 </body>
 </html>
