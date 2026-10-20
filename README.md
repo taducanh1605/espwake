@@ -62,7 +62,12 @@ Firmware source is maintained separately in the private `esp32_wake` repository.
 No GitHub token is needed by a device or a user downloading release assets.
 
 - **esp32_wake_ota.bin**: application-only ESP32-C3 firmware. In ESP32 configuration,
-  choose **Upload firmware**, or use **Check GitHub release** then **Install checked release via OTA**.
+  use **Choose File** for a local `.bin`, or **Get Latest Firmware** to download and verify the
+  latest release in the ESP32's inactive OTA partition. Then click **Install Firmware** and confirm.
+  Choosing a file or downloading alone does not activate the image or restart. The downloaded
+  filename/version is shown next to the selector; it is not saved on the browser computer.
+  Downloaded readiness resets on ESP32 reboot. Selecting a local file takes precedence;
+  Get Latest Firmware clears the local choice.
 - **esp32-wake-usb-flash.zip**: merged image plus USB flash scripts for first installation/recovery.
   Extract, connect the board, and run `flash_merged.bat COM4` (replace COM4).
   Do not upload the merged `esp32_wake_firmware.bin` using OTA.
@@ -78,6 +83,9 @@ sizes, then publishes it as latest in this repository. Existing versions are not
 Only approved distribution assets are published, never the private source tree.
 
 Updates preserve ESP32 settings and require signing in again after restart. Keep power connected.
+Firmware `2026.10.20.2` fixes manual GitHub redirect handling. If older firmware shows
+`ESP_ERR_HTTP_MAX_REDIRECT`, download the application `.bin` here using a browser and install
+it once using the old configuration page's upload button.
 Firmware without OTA support needs one USB update first. GitHub OTA requires Internet/NTP,
 verifies TLS and SHA-256, and does not run automatically. Checksums are not firmware signatures;
 protect release publishing access. Invalid transfers do not switch boot partitions, but runtime
