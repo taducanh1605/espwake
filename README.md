@@ -54,5 +54,35 @@ Run the focused regression tests with Node.js:
 node --test tests/configuration-login.test.cjs
 ```
 
+## Firmware and Windows helper downloads
+
+The dashboard and ESP32 configuration page link to this public repository's
+[latest release](https://github.com/taducanh1605/espwake/releases/latest).
+Firmware source is maintained separately in the private `esp32_wake` repository.
+No GitHub token is needed by a device or a user downloading release assets.
+
+- **esp32_wake_ota.bin**: application-only ESP32-C3 firmware. In ESP32 configuration,
+  choose **Upload firmware**, or use **Check GitHub release** then **Install checked release via OTA**.
+- **esp32-wake-usb-flash.zip**: merged image plus USB flash scripts for first installation/recovery.
+  Extract, connect the board, and run `flash_merged.bat COM4` (replace COM4).
+  Do not upload the merged `esp32_wake_firmware.bin` using OTA.
+- **esp32-wake-windows-helper.zip**: extract and run `install-helper.bat`.
+  Use Run as administrator for Windows startup before sign-in; normal mode starts at user sign-in.
+  Enable automatic USB computer detection in ESP32 configuration. See the included `INSTALL.md`.
+- **firmware-manifest.json** and **SHA256SUMS.txt**: version, board, byte size and SHA-256 integrity data.
+
+For maintainers: update `src/firmware_version.h` in the private firmware checkout, run
+`build_release.ps1`, then `public_release.ps1`. Its default frontend checkout is the sibling
+`espwake` directory. The publisher validates binaries and creates a draft, verifies uploaded asset
+sizes, then publishes it as latest in this repository. Existing versions are not overwritten.
+Only approved distribution assets are published, never the private source tree.
+
+Updates preserve ESP32 settings and require signing in again after restart. Keep power connected.
+Firmware without OTA support needs one USB update first. GitHub OTA requires Internet/NTP,
+verifies TLS and SHA-256, and does not run automatically. Checksums are not firmware signatures;
+protect release publishing access. Invalid transfers do not switch boot partitions, but runtime
+defects in a valid image require USB recovery (no automatic health rollback).
+
 ## License
+
 This project is open-source and available under the MIT License.
