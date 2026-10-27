@@ -56,8 +56,10 @@ node --test tests/configuration-login.test.cjs
 
 ## Firmware and Windows helper downloads
 
-The dashboard and ESP32 configuration page link to this public repository's
-[latest release](https://github.com/taducanh1605/espwake/releases/latest).
+Downloads are available from this public repository's
+[latest release](https://github.com/taducanh1605/espwake/releases/latest) and the ESP32
+configuration page, not the dashboard footer. In configuration, the Windows helper link
+appears only when automatic USB computer detection is checked.
 Firmware source is maintained separately in the private `esp32_wake` repository.
 No GitHub token is needed by a device or a user downloading release assets.
 

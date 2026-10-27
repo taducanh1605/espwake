@@ -1,4 +1,4 @@
-const CACHE_NAME = "esp-wake-shell-v8.8-firmware";
+const CACHE_NAME = "esp-wake-shell-v8.9-no-downloads";
 const APP_SHELL = [
     "./",
     "./index.html",
