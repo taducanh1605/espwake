@@ -198,25 +198,26 @@ async function raceVerifiedCandidates(candidateUrls, expectedHostname) {
     });
     const uniqueUrls = [...new Set(normalizedUrls)];
     if (!uniqueUrls.length) throw new Error("No HTTPS endpoint candidates are available.");
-    const controllers = [];
-    const probes = uniqueUrls.map(async baseUrl => {
-        const controller = new AbortController();
-        controllers.push(controller);
-        const identity = await fetchDeviceIdentity(baseUrl, { signal: controller.signal });
-        if (normalizeDeviceHostname(identity.device_hostname) !== expectedHostname) throw identityMismatchError();
-        return baseUrl;
-    });
-    try {
-        return await Promise.any(probes);
-    } catch (cause) {
-        const failures = cause.errors || [];
-        if (failures.length && failures.every(error => error.code === "DEVICE_IDENTITY_MISMATCH")) throw identityMismatchError();
-        const error = new Error("No reachable endpoint belongs to this ESP32. Check its hostname identity and network.");
-        error.cause = cause;
-        throw error;
-    } finally {
-        controllers.forEach(controller => controller.abort());
+    let fastest = null;
+    let identityMismatches = 0;
+    const failures = [];
+    for (const baseUrl of uniqueUrls) {
+        const startedAt = Date.now();
+        try {
+            const identity = await fetchDeviceIdentity(baseUrl);
+            if (normalizeDeviceHostname(identity.device_hostname) !== expectedHostname) {
+                identityMismatches++;
+                continue;
+            }
+            const elapsed = Date.now() - startedAt;
+            if (!fastest || elapsed < fastest.elapsed) fastest = { baseUrl, elapsed };
+        } catch (error) { failures.push(error); }
     }
+    if (fastest) return fastest.baseUrl;
+    if (identityMismatches && identityMismatches === uniqueUrls.length) throw identityMismatchError();
+    const error = new Error("No reachable endpoint belongs to this ESP32. Check its hostname identity and network.");
+    error.cause = failures;
+    throw error;
 }
 
 async function refreshEndpointCandidates(profile, verifiedBaseUrl) {
@@ -229,13 +230,17 @@ async function refreshEndpointCandidates(profile, verifiedBaseUrl) {
     return candidates;
 }
 
-async function resolveFastestEndpoint(profile) {
+async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
     const configuredBaseUrl = normalizeBaseUrl(profile.baseUrl);
+    let verifiedBaseUrl = "";
+    let needFullRace = forceProbe;
     if (!profile.deviceHostname) {
         if (profile.identityUnsupported) return configuredBaseUrl;
         try {
             const identity = await fetchDeviceIdentity(configuredBaseUrl);
             bindDeviceIdentity(profile, identity);
+            verifiedBaseUrl = configuredBaseUrl;
+            needFullRace = true;
             await saveProfiles();
         } catch (error) {
             if (error.status === 404 || error.code === "IDENTITY_HTTPS_REQUIRED") {
@@ -247,22 +252,51 @@ async function resolveFastestEndpoint(profile) {
         }
     }
 
-    const cachedUrls = profile.endpointCandidates
-        .filter(candidate => candidate && typeof candidate.url === "string")
-        .map(candidate => candidate.url);
-    let verifiedBaseUrl = await raceVerifiedCandidates([...cachedUrls, configuredBaseUrl], profile.deviceHostname);
+    const selectedEndpoint = profile.selectedEndpoint ? normalizeBaseUrl(profile.selectedEndpoint) : "";
+    if (!verifiedBaseUrl && selectedEndpoint && !forceProbe) {
+        try {
+            const identity = await fetchDeviceIdentity(selectedEndpoint);
+            bindDeviceIdentity(profile, identity);
+            verifiedBaseUrl = selectedEndpoint;
+        } catch (error) {
+            needFullRace = true;
+        }
+    }
+    if (!verifiedBaseUrl) {
+        const cachedUrls = profile.endpointCandidates
+            .filter(candidate => candidate && typeof candidate.url === "string")
+            .map(candidate => candidate.url);
+        verifiedBaseUrl = await raceVerifiedCandidates([...cachedUrls, configuredBaseUrl], profile.deviceHostname);
+        needFullRace = true;
+    }
+
     const isStale = !profile.endpointsUpdatedAt || Date.now() - profile.endpointsUpdatedAt >= ENDPOINT_REFRESH_MS;
     if (isStale) {
         try {
             await refreshEndpointCandidates(profile, verifiedBaseUrl);
-            verifiedBaseUrl = await raceVerifiedCandidates(
-                [...profile.endpointCandidates.map(candidate => candidate.url), verifiedBaseUrl],
-                profile.deviceHostname,
-            );
+            needFullRace = true;
         } catch (error) {
             if (error.status !== 404) throw error;
         }
     }
+
+    if (needFullRace) {
+        const alternatives = profile.endpointCandidates
+            .filter(candidate => candidate && typeof candidate.url === "string")
+            .map(candidate => candidate.url);
+        const origins = new Set(alternatives.map(url => { try { return new URL(normalizeBaseUrl(url)).origin; } catch { return ""; } }));
+        if (!origins.has(new URL(verifiedBaseUrl).origin)) alternatives.push(verifiedBaseUrl);
+        try {
+            verifiedBaseUrl = await raceVerifiedCandidates(alternatives, profile.deviceHostname);
+        } catch (error) {
+            if (error.code === "DEVICE_IDENTITY_MISMATCH") throw error;
+        }
+    }
+
+    const changed = profile.selectedEndpoint !== verifiedBaseUrl;
+    profile.selectedEndpoint = verifiedBaseUrl;
+    profile.identityVerifiedAt = Date.now();
+    if (changed) await saveProfiles();
     return verifiedBaseUrl;
 }
 
@@ -452,7 +486,7 @@ async function moveProfile(profile, offset) {
     card.querySelector(`[data-action="${preferredButton.disabled ? fallbackAction : preferredAction}"]`).focus();
 }
 
-async function refreshProfile(profile, { quiet = false } = {}) {
+async function refreshProfile(profile, { quiet = false, forceProbe = false } = {}) {
     const card = findCard(profile.id);
     if (!card || requestsInFlight.has(profile.id)) return;
 
@@ -468,7 +502,7 @@ async function refreshProfile(profile, { quiet = false } = {}) {
     if (!quiet) refreshButton.classList.add("is-loading");
 
     try {
-        const baseUrl = await resolveFastestEndpoint(profile);
+        const baseUrl = await resolveFastestEndpoint(profile, { forceProbe });
         const identity = cardPart(card, "device-identity");
         identity.textContent = profile.deviceHostname ? `Device: ${profile.deviceHostname}` : "Device identity: legacy firmware";
         identity.hidden = false;
@@ -548,7 +582,7 @@ async function sendPowerCommand(profile, card, forceShutdown = false) {
     message.classList.remove("is-error");
 
     try {
-        const baseUrl = await resolveFastestEndpoint(profile);
+        const baseUrl = await resolveFastestEndpoint(profile, { forceProbe: true });
         await request(profile, path, authenticatedRequestOptions(profile), baseUrl);
         cardPart(card, "last-updated").textContent = "Command sent. Waiting for the next status update...";
         setTimeout(() => refreshProfile(profile), 1200);
@@ -646,16 +680,14 @@ function showConfigurationLoading(button, configWindow) {
     return stopLoading;
 }
 
-function openCertificateCheck(profile, verifiedBaseUrl = profile.baseUrl) {
-    const baseUrl = normalizeBaseUrl(verifiedBaseUrl);
+function openCertificateCheck(profile) {
+    const baseUrl = normalizeBaseUrl(profile.baseUrl);
     window.open(endpoint({ baseUrl }, "certificate-check"), "_blank", "noopener,noreferrer");
 }
 
 computersList.addEventListener("submit", async (event) => {
     const form = event.target.closest('[data-role="settings-form"]');
     if (!form) return;
-    event.preventDefault();
-
     const card = form.closest(".computer-card");
     const profile = findProfile(card.dataset.profileId);
     const message = cardPart(card, "message");
@@ -697,13 +729,13 @@ computersList.addEventListener("click", async (event) => {
     } else if (button.dataset.action === "force-shutdown") {
         await sendPowerCommand(profile, card, true);
     } else if (button.dataset.action === "refresh") {
-        await refreshProfile(profile);
+        await refreshProfile(profile, { forceProbe: true });
     } else if (button.dataset.action === "configure") {
         openSettingsProfileId = cardPart(card, "settings-form").hidden ? profile.id : null;
         setSettingsVisible(card, openSettingsProfileId === profile.id);
     } else if (button.dataset.action === "config") {
         try {
-            const baseUrl = await resolveFastestEndpoint(profile);
+            const baseUrl = await resolveFastestEndpoint(profile, { forceProbe: true });
             openConfiguration(profile, button, baseUrl);
         } catch (error) {
             message.textContent = error.message;
