@@ -234,6 +234,7 @@ async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
     const configuredBaseUrl = normalizeBaseUrl(profile.baseUrl);
     let verifiedBaseUrl = "";
     let needFullRace = forceProbe;
+    const failedEndpoints = new Set();
     if (!profile.deviceHostname) {
         if (profile.identityUnsupported) return configuredBaseUrl;
         try {
@@ -260,13 +261,18 @@ async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
             verifiedBaseUrl = selectedEndpoint;
         } catch (error) {
             needFullRace = true;
+            failedEndpoints.add(selectedEndpoint);
         }
     }
     if (!verifiedBaseUrl) {
         const cachedUrls = profile.endpointCandidates
             .filter(candidate => candidate && typeof candidate.url === "string")
             .map(candidate => candidate.url);
-        verifiedBaseUrl = await raceVerifiedCandidates([...cachedUrls, configuredBaseUrl], profile.deviceHostname);
+        const alternatives = [...cachedUrls, configuredBaseUrl].filter(candidate => {
+            try { return !failedEndpoints.has(normalizeBaseUrl(candidate)); }
+            catch { return false; }
+        });
+        verifiedBaseUrl = await raceVerifiedCandidates(alternatives, profile.deviceHostname);
         needFullRace = false;
     }
 
@@ -283,7 +289,11 @@ async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
     if (needFullRace) {
         const alternatives = profile.endpointCandidates
             .filter(candidate => candidate && typeof candidate.url === "string")
-            .map(candidate => candidate.url);
+            .map(candidate => candidate.url)
+            .filter(candidate => {
+                try { return !failedEndpoints.has(normalizeBaseUrl(candidate)); }
+                catch { return false; }
+            });
         const origins = new Set(alternatives.map(url => { try { return new URL(normalizeBaseUrl(url)).origin; } catch { return ""; } }));
         if (!origins.has(new URL(verifiedBaseUrl).origin)) alternatives.push(verifiedBaseUrl);
         try {
