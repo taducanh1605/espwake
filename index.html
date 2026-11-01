@@ -61,6 +61,7 @@
                 <div class="device-summary">
                     <p class="device-status" data-role="device-status" aria-live="polite">No status available</p>
                     <p class="last-updated" data-role="last-updated">Enter an ESP32 address to begin.</p>
+                    <p class="last-updated device-identity" data-role="device-identity" hidden></p>
                     <div class="connection-help" data-role="connection-help" hidden>
                         <p data-role="connection-help-text"></p>
                         <button class="certificate-button" data-action="trust-certificate" type="button">Open security check</button>
@@ -79,6 +80,10 @@
                 <label>ESP32 address or proxy URL
                     <input data-field="base-url" type="text" autocomplete="url" spellcheck="false" placeholder="192.168.1.28:2443 or https://.../port/32443">
                 </label>
+                <div class="identity-controls">
+                    <span>Device identity is bound to the ESP32 hostname, never to a discovered IP address.</span>
+                    <button class="clear-password-button" data-action="forget-device-identity" type="button" disabled>Forget ESP32 identity</button>
+                </div>
                 <label class="password-field">
                     <span class="password-label">New control password <span class="help-mark" aria-hidden="true">i</span></span>
                     <input data-field="password" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
@@ -99,6 +104,6 @@
         </article>
     </template>
     
-    <script src="js/script.js?v=20261010-config-loading"></script>
+    <script src="js/script.js?v=20261101-hostname-endpoint-race"></script>
 </body>
 </html>

@@ -286,6 +286,7 @@ input {
 }
 input::placeholder { color: #97a098; }
 .password-storage-row { display: flex; align-items: center; justify-content: flex-end; margin: 7px 0 18px; }
+.identity-controls { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; margin: -4px 0 16px; color: var(--muted); font-size: 0.74rem; }
 .clear-password-button {
     flex: 0 0 auto;
     min-height: 38px;

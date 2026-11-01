@@ -2,6 +2,8 @@ const DB_NAME = "ESPWakeDB";
 const STORE_NAME = "settings";
 const POLL_INTERVAL_MS = 7000;
 const REQUEST_TIMEOUT_MS = 12000;
+const IDENTITY_PROBE_TIMEOUT_MS = 3500;
+const ENDPOINT_REFRESH_MS = 300000;
 const DEFAULT_PASSWORD = "12345678";
 
 const computersList = document.getElementById("computers-list");
@@ -51,13 +53,27 @@ function createProfile(overrides = {}) {
         name: "Computer",
         baseUrl: "",
         password: "",
+        deviceHostname: "",
+        endpointCandidates: [],
+        endpointsUpdatedAt: 0,
+        identityUnsupported: false,
         ...overrides,
     };
 }
 
 async function loadProfiles() {
     const storedProfiles = await readSetting("profiles");
-    if (Array.isArray(storedProfiles)) return storedProfiles;
+    if (Array.isArray(storedProfiles)) {
+        return storedProfiles.map(profile => ({
+            ...profile,
+            deviceHostname: (() => {
+                try { return profile.deviceHostname ? normalizeDeviceHostname(profile.deviceHostname) : ""; }
+                catch { return ""; }
+            })(),
+            endpointCandidates: Array.isArray(profile.endpointCandidates) ? profile.endpointCandidates : [],
+            endpointsUpdatedAt: Number.isFinite(profile.endpointsUpdatedAt) ? profile.endpointsUpdatedAt : 0,
+        }));
+    }
 
     const oldBaseUrl = await readSetting("baseUrl");
     const oldPassword = await readSetting("password");
@@ -89,6 +105,167 @@ function endpoint(profile, path) {
     return `${profile.baseUrl}/${path.replace(/^\/+/, "")}`;
 }
 
+function normalizeDeviceHostname(value) {
+    const hostname = String(value || "").trim().toLowerCase().replace(/\.$/, "");
+    const labels = hostname.split(".");
+    const valid = hostname.length <= 253 && labels.length > 0 && labels.every(label =>
+        label.length > 0 && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
+    if (!valid || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
+        throw new Error("ESP32 returned an invalid device hostname identity.");
+    }
+    return hostname;
+}
+
+function identityMismatchError() {
+    const error = new Error("This address belongs to a different ESP32. No password was sent.");
+    error.code = "DEVICE_IDENTITY_MISMATCH";
+    return error;
+}
+
+function bindDeviceIdentity(profile, identity) {
+    const hostname = normalizeDeviceHostname(identity?.device_hostname);
+    profile.identityUnsupported = false;
+    if (profile.deviceHostname && profile.deviceHostname !== hostname) throw identityMismatchError();
+    if (!profile.deviceHostname) profile.deviceHostname = hostname;
+    return profile.deviceHostname;
+}
+
+function normalizeEndpointCandidates(response, expectedHostname) {
+    if (normalizeDeviceHostname(response?.device_hostname) !== expectedHostname) throw identityMismatchError();
+    if (!Array.isArray(response.https_endpoints)) throw new Error("ESP32 returned an invalid HTTPS endpoint list.");
+    const candidates = [];
+    const seen = new Set();
+    response.https_endpoints.forEach(entry => {
+        try {
+            const url = new URL(entry.url);
+            const address = String(entry.address || "").toLowerCase();
+            const candidateHost = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+            if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash ||
+                candidateHost !== address || !url.port || !["ipv4", "ipv6", "hostname"].includes(entry.family) || seen.has(url.origin)) return;
+            if ((entry.family === "ipv4" && (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(address) || address.split(".").some(part => Number(part) > 255))) ||
+                (entry.family === "ipv6" && (!address.includes(":") || address.includes("%"))) ||
+                (entry.family === "hostname" && (normalizeDeviceHostname(address) !== address || entry.source !== "duckdns"))) return;
+            seen.add(url.origin);
+            candidates.push({
+                url: url.origin,
+                address,
+                family: entry.family,
+                scope: String(entry.scope || "unknown"),
+                source: String(entry.source || "unknown"),
+            });
+        } catch { /* Ignore malformed candidates from the device. */ }
+    });
+    return candidates;
+}
+
+async function fetchDeviceIdentity(baseUrl, { signal, timeoutMs = IDENTITY_PROBE_TIMEOUT_MS } = {}) {
+    const normalized = normalizeBaseUrl(baseUrl);
+    if (new URL(normalized).protocol !== "https:") {
+        const error = new Error("HTTPS is required for ESP32 identity discovery.");
+        error.code = "IDENTITY_HTTPS_REQUIRED";
+        throw error;
+    }
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    const timeout = setTimeout(abort, timeoutMs);
+    try {
+        const response = await fetch(endpoint({ baseUrl: normalized }, "api/identity"), {
+            method: "GET",
+            credentials: "omit",
+            cache: "no-store",
+            signal: controller.signal,
+        });
+        if (!response.ok) {
+            const error = new Error(`Identity HTTP ${response.status}`);
+            error.status = response.status;
+            throw error;
+        }
+        return response.json();
+    } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", abort);
+    }
+}
+
+async function raceVerifiedCandidates(candidateUrls, expectedHostname) {
+    expectedHostname = normalizeDeviceHostname(expectedHostname);
+    const normalizedUrls = candidateUrls.flatMap(candidate => {
+        try {
+            const baseUrl = normalizeBaseUrl(candidate);
+            return new URL(baseUrl).protocol === "https:" ? [baseUrl] : [];
+        } catch { return []; }
+    });
+    const uniqueUrls = [...new Set(normalizedUrls)];
+    if (!uniqueUrls.length) throw new Error("No HTTPS endpoint candidates are available.");
+    const controllers = [];
+    const probes = uniqueUrls.map(async baseUrl => {
+        const controller = new AbortController();
+        controllers.push(controller);
+        const identity = await fetchDeviceIdentity(baseUrl, { signal: controller.signal });
+        if (normalizeDeviceHostname(identity.device_hostname) !== expectedHostname) throw identityMismatchError();
+        return baseUrl;
+    });
+    try {
+        return await Promise.any(probes);
+    } catch (cause) {
+        const failures = cause.errors || [];
+        if (failures.length && failures.every(error => error.code === "DEVICE_IDENTITY_MISMATCH")) throw identityMismatchError();
+        const error = new Error("No reachable endpoint belongs to this ESP32. Check its hostname identity and network.");
+        error.cause = cause;
+        throw error;
+    } finally {
+        controllers.forEach(controller => controller.abort());
+    }
+}
+
+async function refreshEndpointCandidates(profile, verifiedBaseUrl) {
+    const response = await request(profile, "api/endpoints", authenticatedRequestOptions(profile), verifiedBaseUrl);
+    const data = await response.json();
+    const candidates = normalizeEndpointCandidates(data, profile.deviceHostname);
+    profile.endpointCandidates = candidates;
+    profile.endpointsUpdatedAt = Date.now();
+    await saveProfiles();
+    return candidates;
+}
+
+async function resolveFastestEndpoint(profile) {
+    const configuredBaseUrl = normalizeBaseUrl(profile.baseUrl);
+    if (!profile.deviceHostname) {
+        if (profile.identityUnsupported) return configuredBaseUrl;
+        try {
+            const identity = await fetchDeviceIdentity(configuredBaseUrl);
+            bindDeviceIdentity(profile, identity);
+            await saveProfiles();
+        } catch (error) {
+            if (error.status === 404 || error.code === "IDENTITY_HTTPS_REQUIRED") {
+                profile.identityUnsupported = true;
+                await saveProfiles();
+                return configuredBaseUrl;
+            }
+            throw error;
+        }
+    }
+
+    const cachedUrls = profile.endpointCandidates
+        .filter(candidate => candidate && typeof candidate.url === "string")
+        .map(candidate => candidate.url);
+    let verifiedBaseUrl = await raceVerifiedCandidates([...cachedUrls, configuredBaseUrl], profile.deviceHostname);
+    const isStale = !profile.endpointsUpdatedAt || Date.now() - profile.endpointsUpdatedAt >= ENDPOINT_REFRESH_MS;
+    if (isStale) {
+        try {
+            await refreshEndpointCandidates(profile, verifiedBaseUrl);
+            verifiedBaseUrl = await raceVerifiedCandidates(
+                [...profile.endpointCandidates.map(candidate => candidate.url), verifiedBaseUrl],
+                profile.deviceHostname,
+            );
+        } catch (error) {
+            if (error.status !== 404) throw error;
+        }
+    }
+    return verifiedBaseUrl;
+}
+
 function findProfile(id) {
     return profiles.find((profile) => profile.id === id);
 }
@@ -114,11 +291,11 @@ function setSettingsVisible(card, visible) {
     configureButton.classList.toggle("danger-button", !visible);
 }
 
-async function request(profile, path, options = {}) {
+async function request(profile, path, options = {}, baseUrl = profile.baseUrl) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-        const response = await fetch(endpoint(profile, path), {
+        const response = await fetch(endpoint({ baseUrl }, path), {
             cache: "no-store",
             ...options,
             signal: controller.signal,
@@ -225,6 +402,10 @@ function renderProfiles() {
         passwordTooltip.id = `password-help-${profile.id}`;
         passwordInput.setAttribute("aria-describedby", passwordTooltip.id);
         card.querySelector('[data-action="clear-password"]').disabled = !profile.password;
+        card.querySelector('[data-action="forget-device-identity"]').disabled = !profile.deviceHostname;
+        const identity = cardPart(card, "device-identity");
+        identity.textContent = profile.deviceHostname ? `Device: ${profile.deviceHostname}` : "Device identity not established";
+        identity.hidden = !profile.deviceHostname;
         card.querySelector('[data-action="move-up"]').disabled = index === 0;
         card.querySelector('[data-action="move-down"]').disabled = index === profiles.length - 1;
         setSettingsVisible(card, profile.id === openSettingsProfileId);
@@ -287,7 +468,12 @@ async function refreshProfile(profile, { quiet = false } = {}) {
     if (!quiet) refreshButton.classList.add("is-loading");
 
     try {
-        const response = await request(profile, "stt", authenticatedRequestOptions(profile));
+        const baseUrl = await resolveFastestEndpoint(profile);
+        const identity = cardPart(card, "device-identity");
+        identity.textContent = profile.deviceHostname ? `Device: ${profile.deviceHostname}` : "Device identity: legacy firmware";
+        identity.hidden = false;
+        card.querySelector('[data-action="forget-device-identity"]').disabled = !profile.deviceHostname;
+        const response = await request(profile, "stt", authenticatedRequestOptions(profile), baseUrl);
         const data = await response.json();
         const device = Object.values(data)[0];
         if (!device || typeof device.stat !== "string") throw new Error("Invalid status response");
@@ -299,7 +485,11 @@ async function refreshProfile(profile, { quiet = false } = {}) {
     } catch (error) {
         console.error(`Status request failed for ${profile.name}:`, error);
         renderPowerState(card, "unknown");
-        if (error.status === 401 || error.status === 403) {
+        if (error.code === "DEVICE_IDENTITY_MISMATCH") {
+            setConnection(card, "error", "ESP32 identity mismatch");
+            cardPart(card, "device-status").textContent = error.message;
+            hideConnectionHelp(card);
+        } else if (error.status === 401 || error.status === 403) {
             setConnection(card, "error", "Authentication failed");
             cardPart(card, "device-status").textContent = "Cannot authenticate with this ESP32";
             cardPart(card, "last-updated").textContent = "Check or clear the saved control password.";
@@ -358,14 +548,15 @@ async function sendPowerCommand(profile, card, forceShutdown = false) {
     message.classList.remove("is-error");
 
     try {
-        await request(profile, path, authenticatedRequestOptions(profile));
+        const baseUrl = await resolveFastestEndpoint(profile);
+        await request(profile, path, authenticatedRequestOptions(profile), baseUrl);
         cardPart(card, "last-updated").textContent = "Command sent. Waiting for the next status update...";
         setTimeout(() => refreshProfile(profile), 1200);
     } catch (error) {
         console.error(`Power command failed for ${profile.name}:`, error);
-        message.textContent = profile.password
-            ? "Command failed. Check the saved password and connection."
-            : "The power command could not be sent.";
+        message.textContent = error.code === "DEVICE_IDENTITY_MISMATCH"
+            ? error.message
+            : profile.password ? "Command failed. Check the saved password and connection." : "The power command could not be sent.";
         message.classList.add("is-error");
         renderPowerState(card, state);
     } finally {
@@ -376,10 +567,10 @@ async function sendPowerCommand(profile, card, forceShutdown = false) {
     }
 }
 
-function openConfiguration(profile, button) {
+function openConfiguration(profile, button, verifiedBaseUrl = profile.baseUrl) {
     if (!profile.baseUrl) throw new Error("Enter and save an ESP32 address first.");
 
-    const baseUrl = normalizeBaseUrl(profile.baseUrl);
+    const baseUrl = normalizeBaseUrl(verifiedBaseUrl);
 
     const installedApp = window.matchMedia?.("(display-mode: standalone), (display-mode: fullscreen)").matches
         || navigator.standalone === true;
@@ -455,8 +646,8 @@ function showConfigurationLoading(button, configWindow) {
     return stopLoading;
 }
 
-function openCertificateCheck(profile) {
-    const baseUrl = normalizeBaseUrl(profile.baseUrl);
+function openCertificateCheck(profile, verifiedBaseUrl = profile.baseUrl) {
+    const baseUrl = normalizeBaseUrl(verifiedBaseUrl);
     window.open(endpoint({ baseUrl }, "certificate-check"), "_blank", "noopener,noreferrer");
 }
 
@@ -472,7 +663,9 @@ computersList.addEventListener("submit", async (event) => {
 
     try {
         profile.name = form.querySelector('[data-field="name"]').value.trim() || "Computer";
+        const previousBaseUrl = profile.baseUrl;
         profile.baseUrl = normalizeBaseUrl(form.querySelector('[data-field="base-url"]').value);
+        if (previousBaseUrl !== profile.baseUrl) profile.identityUnsupported = false;
         const newPassword = form.querySelector('[data-field="password"]').value;
         if (newPassword) profile.password = newPassword;
         else if (!profile.password) profile.password = DEFAULT_PASSWORD;
@@ -510,13 +703,41 @@ computersList.addEventListener("click", async (event) => {
         setSettingsVisible(card, openSettingsProfileId === profile.id);
     } else if (button.dataset.action === "config") {
         try {
-            openConfiguration(profile, button);
+            const baseUrl = await resolveFastestEndpoint(profile);
+            openConfiguration(profile, button, baseUrl);
         } catch (error) {
             message.textContent = error.message;
             message.classList.add("is-error");
         }
     } else if (button.dataset.action === "trust-certificate") {
         openCertificateCheck(profile);
+    } else if (button.dataset.action === "forget-device-identity") {
+        if (!profile.deviceHostname || !window.confirm(`Forget the saved ESP32 identity for ${profile.name}? The next reachable device will be bound to this profile.`)) return;
+        const previous = {
+            deviceHostname: profile.deviceHostname,
+            endpointCandidates: profile.endpointCandidates,
+            endpointsUpdatedAt: profile.endpointsUpdatedAt,
+            identityUnsupported: profile.identityUnsupported,
+        };
+        profile.deviceHostname = "";
+        profile.endpointCandidates = [];
+        profile.endpointsUpdatedAt = 0;
+        profile.identityUnsupported = false;
+        try {
+            await saveProfiles();
+            card.querySelector('[data-action="forget-device-identity"]').disabled = true;
+            cardPart(card, "device-identity").hidden = true;
+            message.textContent = "Saved device identity forgotten. Reconnecting will bind a hostname from the ESP32.";
+            message.classList.remove("is-error");
+            await refreshProfile(profile);
+        } catch (error) {
+            Object.assign(profile, previous);
+            cardPart(card, "device-identity").textContent = `Device: ${profile.deviceHostname}`;
+            cardPart(card, "device-identity").hidden = false;
+            card.querySelector('[data-action="forget-device-identity"]').disabled = !profile.deviceHostname;
+            message.textContent = "The saved device identity could not be cleared.";
+            message.classList.add("is-error");
+        }
     } else if (button.dataset.action === "clear-password") {
         if (!profile.password || !window.confirm(`Clear the saved control password for ${profile.name} from this browser? This does not change password protection on the ESP32.`)) return;
         const previousPassword = profile.password;

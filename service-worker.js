@@ -1,9 +1,9 @@
-const CACHE_NAME = "esp-wake-shell-v8.9-no-downloads";
+const CACHE_NAME = "esp-wake-shell-v9.0-device-identity";
 const APP_SHELL = [
     "./",
     "./index.html",
     "./css/styles.css?v=20261010-config-loading",
-    "./js/script.js?v=20261010-config-loading",
+    "./js/script.js?v=20261101-hostname-endpoint-race",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",

@@ -42,6 +42,10 @@ Configuration URLs retain a trailing slash and proxy path prefixes. Passwords ar
 
 After deploying changes to GitHub Pages, reload the dashboard to receive the updated script/service worker. Local edits do not change the published site automatically.
 
+## ESP32 endpoint discovery and identity
+
+After the configured base URL first answers `/api/identity`, the dashboard stores the ESP32's stable `device_hostname` (derived from the station MAC) as the profile identity. It stores discovered HTTPS IP/hostname URLs separately. Before status, power, config, or certificate actions, it races unauthenticated identity probes and uses the fastest endpoint that reports the exact saved hostname. Only then can it send the saved control password or action. Thus two boards with the same LAN IPv4 cannot share identity or receive each other's commands. The dashboard never derives a device identity from a discovered IP. Use **Forget ESP32 identity** only when intentionally replacing/rebinding the physical board. Legacy firmware without the identity endpoint keeps using the manually configured URL without endpoint racing.
+
 ## Certificate Confirmation
 
 The certificate confirmation button opens `GET /certificate-check` on the saved ESP32 base URL, preserving its port and any proxy prefix. After the user accepts the browser's certificate warning for their own device, the firmware serves a page that calls `window.close()`. No password or configuration session is required or changed. This does not bypass certificate verification or install a trusted certificate.
@@ -51,7 +55,7 @@ Browsers normally allow a script-opened tab to close itself. Mobile PWA handoff 
 Run the focused regression tests with Node.js:
 
 ```shell
-node --test tests/configuration-login.test.cjs
+node --test tests/*.test.cjs
 ```
 
 ## Firmware and Windows helper downloads
