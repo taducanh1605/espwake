@@ -2,7 +2,8 @@ const DB_NAME = "ESPWakeDB";
 const STORE_NAME = "settings";
 const POLL_INTERVAL_MS = 7000;
 const REQUEST_TIMEOUT_MS = 12000;
-const IDENTITY_PROBE_TIMEOUT_MS = 3500;
+const STATUS_REQUEST_TIMEOUT_MS = 2000;
+const IDENTITY_PROBE_TIMEOUT_MS = 2000;
 const ENDPOINT_REFRESH_MS = 300000;
 const DEFAULT_PASSWORD = "12345678";
 
@@ -181,7 +182,7 @@ async function fetchDeviceIdentity(baseUrl, { signal, timeoutMs = IDENTITY_PROBE
             error.status = response.status;
             throw error;
         }
-        return response.json();
+        return await response.json();
     } finally {
         clearTimeout(timeout);
         signal?.removeEventListener("abort", abort);
@@ -198,22 +199,18 @@ async function raceVerifiedCandidates(candidateUrls, expectedHostname) {
     });
     const uniqueUrls = [...new Set(normalizedUrls)];
     if (!uniqueUrls.length) throw new Error("No HTTPS endpoint candidates are available.");
-    let fastest = null;
     let identityMismatches = 0;
     const failures = [];
     for (const baseUrl of uniqueUrls) {
-        const startedAt = Date.now();
         try {
             const identity = await fetchDeviceIdentity(baseUrl);
             if (normalizeDeviceHostname(identity.device_hostname) !== expectedHostname) {
                 identityMismatches++;
                 continue;
             }
-            const elapsed = Date.now() - startedAt;
-            if (!fastest || elapsed < fastest.elapsed) fastest = { baseUrl, elapsed };
+            return baseUrl;
         } catch (error) { failures.push(error); }
     }
-    if (fastest) return fastest.baseUrl;
     if (identityMismatches && identityMismatches === uniqueUrls.length) throw identityMismatchError();
     const error = new Error("No reachable endpoint belongs to this ESP32. Check its hostname identity and network.");
     error.cause = failures;
@@ -233,19 +230,24 @@ async function refreshEndpointCandidates(profile, verifiedBaseUrl) {
 async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
     const configuredBaseUrl = normalizeBaseUrl(profile.baseUrl);
     let verifiedBaseUrl = "";
-    let needFullRace = forceProbe;
-    const failedEndpoints = new Set();
     if (!profile.deviceHostname) {
-        if (profile.identityUnsupported) return configuredBaseUrl;
+        if (profile.identityUnsupported && !forceProbe && profile.identityProbeAt &&
+            Date.now() - profile.identityProbeAt < ENDPOINT_REFRESH_MS) return configuredBaseUrl;
+        profile.identityProbeAt = Date.now();
         try {
             const identity = await fetchDeviceIdentity(configuredBaseUrl);
             bindDeviceIdentity(profile, identity);
             verifiedBaseUrl = configuredBaseUrl;
-            needFullRace = true;
             await saveProfiles();
         } catch (error) {
-            if (error.status === 404 || error.code === "IDENTITY_HTTPS_REQUIRED") {
+            // Old firmware's 404 lacks CORS headers, so browsers report a TypeError.
+            // Compatibility is restricted to the URL explicitly saved by the user.
+            if (error.status === 404 || error.status === 405 || error.name === "TypeError" ||
+                error.code === "IDENTITY_HTTPS_REQUIRED") {
                 profile.identityUnsupported = true;
+                profile.selectedEndpoint = "";
+                profile.endpointCandidates = [];
+                console.warn("Identity unavailable; using only the configured URL for legacy compatibility.", error);
                 await saveProfiles();
                 return configuredBaseUrl;
             }
@@ -253,53 +255,23 @@ async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
         }
     }
 
-    const selectedEndpoint = profile.selectedEndpoint ? normalizeBaseUrl(profile.selectedEndpoint) : "";
-    if (!verifiedBaseUrl && selectedEndpoint && !forceProbe) {
-        try {
-            const identity = await fetchDeviceIdentity(selectedEndpoint);
-            bindDeviceIdentity(profile, identity);
-            verifiedBaseUrl = selectedEndpoint;
-        } catch (error) {
-            needFullRace = true;
-            failedEndpoints.add(selectedEndpoint);
-        }
-    }
     if (!verifiedBaseUrl) {
         const cachedUrls = profile.endpointCandidates
             .filter(candidate => candidate && typeof candidate.url === "string")
             .map(candidate => candidate.url);
-        const alternatives = [...cachedUrls, configuredBaseUrl].filter(candidate => {
-            try { return !failedEndpoints.has(normalizeBaseUrl(candidate)); }
-            catch { return false; }
-        });
+        const alternatives = [profile.selectedEndpoint, configuredBaseUrl, ...cachedUrls].filter(Boolean);
         verifiedBaseUrl = await raceVerifiedCandidates(alternatives, profile.deviceHostname);
-        needFullRace = false;
     }
 
     const isStale = !profile.endpointsUpdatedAt || Date.now() - profile.endpointsUpdatedAt >= ENDPOINT_REFRESH_MS;
-    if (isStale) {
+    const canRefresh = !profile.endpointsAttemptedAt || Date.now() - profile.endpointsAttemptedAt >= ENDPOINT_REFRESH_MS;
+    if (isStale && (forceProbe || canRefresh)) {
+        profile.endpointsAttemptedAt = Date.now();
         try {
             await refreshEndpointCandidates(profile, verifiedBaseUrl);
-            needFullRace = true;
-        } catch (error) {
-            if (error.status !== 404) throw error;
-        }
-    }
-
-    if (needFullRace) {
-        const alternatives = profile.endpointCandidates
-            .filter(candidate => candidate && typeof candidate.url === "string")
-            .map(candidate => candidate.url)
-            .filter(candidate => {
-                try { return !failedEndpoints.has(normalizeBaseUrl(candidate)); }
-                catch { return false; }
-            });
-        const origins = new Set(alternatives.map(url => { try { return new URL(normalizeBaseUrl(url)).origin; } catch { return ""; } }));
-        if (!origins.has(new URL(verifiedBaseUrl).origin)) alternatives.push(verifiedBaseUrl);
-        try {
-            verifiedBaseUrl = await raceVerifiedCandidates(alternatives, profile.deviceHostname);
         } catch (error) {
             if (error.code === "DEVICE_IDENTITY_MISMATCH") throw error;
+            console.warn("Endpoint inventory unavailable; retaining the verified connection.", error);
         }
     }
 
@@ -308,6 +280,40 @@ async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
     profile.identityVerifiedAt = Date.now();
     if (changed) await saveProfiles();
     return verifiedBaseUrl;
+}
+
+const deviceOperations = new Map();
+
+function withDeviceOperation(profile, operation) {
+    const key = normalizeBaseUrl(profile.baseUrl);
+    const previous = deviceOperations.get(key) || Promise.resolve();
+    const result = previous.then(operation);
+    const settled = result.then(() => {}, () => {});
+    deviceOperations.set(key, settled);
+    settled.then(() => {
+        if (deviceOperations.get(key) === settled) deviceOperations.delete(key);
+    });
+    return result;
+}
+
+async function requestDevice(profile, path, { forceProbe = false, retryStatus = false } = {}) {
+    return withDeviceOperation(profile, async () => {
+        let baseUrl = await resolveFastestEndpoint(profile, { forceProbe });
+        try {
+            return await request(profile, path, authenticatedRequestOptions(profile), baseUrl);
+        } catch (error) {
+            if (path !== "stt" || !retryStatus || !profile.deviceHostname || (error.status && error.status < 500)) throw error;
+            const candidates = [profile.baseUrl, ...profile.endpointCandidates.map(candidate => candidate?.url)]
+                .filter(url => {
+                    try { return url && normalizeBaseUrl(url) !== baseUrl; }
+                    catch { return false; }
+                });
+            baseUrl = await raceVerifiedCandidates(candidates, profile.deviceHostname);
+            profile.selectedEndpoint = baseUrl;
+            await saveProfiles();
+            return request(profile, path, authenticatedRequestOptions(profile), baseUrl);
+        }
+    });
 }
 
 function findProfile(id) {
@@ -337,7 +343,8 @@ function setSettingsVisible(card, visible) {
 
 async function request(profile, path, options = {}, baseUrl = profile.baseUrl) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timeoutMs = path === "stt" || path === "api/endpoints" ? STATUS_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const response = await fetch(endpoint({ baseUrl }, path), {
             cache: "no-store",
@@ -349,7 +356,8 @@ async function request(profile, path, options = {}, baseUrl = profile.baseUrl) {
             error.status = response.status;
             throw error;
         }
-        return response;
+        const body = await response.arrayBuffer();
+        return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
     } finally {
         clearTimeout(timeout);
     }
@@ -512,12 +520,11 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
     if (!quiet) refreshButton.classList.add("is-loading");
 
     try {
-        const baseUrl = await resolveFastestEndpoint(profile, { forceProbe });
+        const response = await requestDevice(profile, "stt", { forceProbe, retryStatus: true });
         const identity = cardPart(card, "device-identity");
         identity.textContent = profile.deviceHostname ? `Device: ${profile.deviceHostname}` : "Device identity: legacy firmware";
         identity.hidden = false;
         card.querySelector('[data-action="forget-device-identity"]').disabled = !profile.deviceHostname;
-        const response = await request(profile, "stt", authenticatedRequestOptions(profile), baseUrl);
         const data = await response.json();
         const device = Object.values(data)[0];
         if (!device || typeof device.stat !== "string") throw new Error("Invalid status response");
@@ -592,8 +599,7 @@ async function sendPowerCommand(profile, card, forceShutdown = false) {
     message.classList.remove("is-error");
 
     try {
-        const baseUrl = await resolveFastestEndpoint(profile, { forceProbe: true });
-        await request(profile, path, authenticatedRequestOptions(profile), baseUrl);
+        await requestDevice(profile, path);
         cardPart(card, "last-updated").textContent = "Command sent. Waiting for the next status update...";
         setTimeout(() => refreshProfile(profile), 1200);
     } catch (error) {
@@ -658,9 +664,9 @@ function openConfiguration(profile, button, verifiedBaseUrl = profile.baseUrl, r
 }
 
 function openProfileConfiguration(profile, button) {
-    let baseUrl = profile.selectedEndpoint || profile.baseUrl;
+    let baseUrl = profile.deviceHostname ? profile.selectedEndpoint || profile.baseUrl : profile.baseUrl;
 
-    if (!profile.deviceHostname || profile.identityUnsupported) {
+    if (!profile.deviceHostname) {
         openConfiguration({ ...profile, password: "" }, button, baseUrl);
         return Promise.resolve(false);
     }
@@ -671,7 +677,7 @@ function openProfileConfiguration(profile, button) {
     if (!configWindow) throw new Error("Allow pop-ups to open the configuration page.");
     const stopLoading = button ? showConfigurationLoading(button, configWindow) : () => {};
 
-    return resolveFastestEndpoint(profile).then((verifiedBaseUrl) => {
+    return withDeviceOperation(profile, () => resolveFastestEndpoint(profile)).then((verifiedBaseUrl) => {
         openConfiguration(profile, button, verifiedBaseUrl, configWindow, stopLoading);
         return true;
     }, (error) => {
@@ -736,7 +742,12 @@ computersList.addEventListener("submit", async (event) => {
         profile.name = form.querySelector('[data-field="name"]').value.trim() || "Computer";
         const previousBaseUrl = profile.baseUrl;
         profile.baseUrl = normalizeBaseUrl(form.querySelector('[data-field="base-url"]').value);
-        if (previousBaseUrl !== profile.baseUrl) profile.identityUnsupported = false;
+        if (previousBaseUrl !== profile.baseUrl) {
+            profile.identityUnsupported = false;
+            profile.selectedEndpoint = "";
+            profile.endpointsUpdatedAt = 0;
+            profile.endpointsAttemptedAt = 0;
+        }
         const newPassword = form.querySelector('[data-field="password"]').value;
         if (newPassword) profile.password = newPassword;
         else if (!profile.password) profile.password = DEFAULT_PASSWORD;
