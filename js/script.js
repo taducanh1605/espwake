@@ -267,7 +267,7 @@ async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
             .filter(candidate => candidate && typeof candidate.url === "string")
             .map(candidate => candidate.url);
         verifiedBaseUrl = await raceVerifiedCandidates([...cachedUrls, configuredBaseUrl], profile.deviceHostname);
-        needFullRace = true;
+        needFullRace = false;
     }
 
     const isStale = !profile.endpointsUpdatedAt || Date.now() - profile.endpointsUpdatedAt >= ENDPOINT_REFRESH_MS;
@@ -318,11 +318,11 @@ function setSettingsVisible(card, visible) {
     form.hidden = !visible;
     form.classList.remove(!visible ? "show" : "hide")
     form.classList.add(!visible ? "hide" : "show")
-    configureButton.setAttribute("aria-expanded", String(!visible));
+    configureButton.setAttribute("aria-expanded", String(visible));
     configureButton.textContent = visible ? "×" : "⚙";
-    configureButton.setAttribute("aria-label", !visible ? "Close computer settings" : "Configure computer");
-    configureButton.title = !visible ? "Close computer settings" : "Configure computer";
-    configureButton.classList.toggle("danger-button", !visible);
+    configureButton.setAttribute("aria-label", visible ? "Close computer settings" : "Configure computer");
+    configureButton.title = visible ? "Close computer settings" : "Configure computer";
+    configureButton.classList.toggle("danger-button", visible);
 }
 
 async function request(profile, path, options = {}, baseUrl = profile.baseUrl) {
@@ -601,7 +601,7 @@ async function sendPowerCommand(profile, card, forceShutdown = false) {
     }
 }
 
-function openConfiguration(profile, button, verifiedBaseUrl = profile.baseUrl) {
+function openConfiguration(profile, button, verifiedBaseUrl = profile.baseUrl, reservedWindow = null, loadingStop = null) {
     if (!profile.baseUrl) throw new Error("Enter and save an ESP32 address first.");
 
     const baseUrl = normalizeBaseUrl(verifiedBaseUrl);
@@ -614,11 +614,11 @@ function openConfiguration(profile, button, verifiedBaseUrl = profile.baseUrl) {
         return;
     }
 
-    if (button?.disabled) return;
-    const configWindow = installedApp && profile.password ? window : window.open("about:blank", "_blank");
+    if (button?.disabled && !loadingStop) return;
+    const configWindow = installedApp && profile.password ? window : reservedWindow || window.open("about:blank", "_blank");
     if (!configWindow) throw new Error("Allow pop-ups to open the configuration page.");
 
-    const stopLoading = button ? showConfigurationLoading(button, configWindow) : () => {};
+    const stopLoading = loadingStop || (button ? showConfigurationLoading(button, configWindow) : () => {});
     try {
         if (!profile.password) {
             configWindow.opener = null;
@@ -645,6 +645,34 @@ function openConfiguration(profile, button, verifiedBaseUrl = profile.baseUrl) {
         stopLoading();
         throw error;
     }
+}
+
+function openProfileConfiguration(profile, button) {
+    let baseUrl = profile.selectedEndpoint || profile.baseUrl;
+
+    if (!profile.deviceHostname || profile.identityUnsupported) {
+        openConfiguration({ ...profile, password: "" }, button, baseUrl);
+        return Promise.resolve(false);
+    }
+
+    const installedApp = window.matchMedia?.("(display-mode: standalone), (display-mode: fullscreen)").matches
+        || navigator.standalone === true;
+    const configWindow = installedApp && profile.password ? window : window.open("about:blank", "_blank");
+    if (!configWindow) throw new Error("Allow pop-ups to open the configuration page.");
+    const stopLoading = button ? showConfigurationLoading(button, configWindow) : () => {};
+
+    return resolveFastestEndpoint(profile).then((verifiedBaseUrl) => {
+        openConfiguration(profile, button, verifiedBaseUrl, configWindow, stopLoading);
+        return true;
+    }, (error) => {
+        if (error.code === "DEVICE_IDENTITY_MISMATCH") {
+            stopLoading();
+            if (configWindow !== window) configWindow.close();
+            throw error;
+        }
+        openConfiguration({ ...profile, password: "" }, button, baseUrl, configWindow, stopLoading);
+        return false;
+    });
 }
 
 function showConfigurationLoading(button, configWindow) {
@@ -686,6 +714,7 @@ function openCertificateCheck(profile) {
 }
 
 computersList.addEventListener("submit", async (event) => {
+    event.preventDefault();
     const form = event.target.closest('[data-role="settings-form"]');
     if (!form) return;
     const card = form.closest(".computer-card");
@@ -735,8 +764,11 @@ computersList.addEventListener("click", async (event) => {
         setSettingsVisible(card, openSettingsProfileId === profile.id);
     } else if (button.dataset.action === "config") {
         try {
-            const baseUrl = await resolveFastestEndpoint(profile, { forceProbe: true });
-            openConfiguration(profile, button, baseUrl);
+            const identityVerified = await openProfileConfiguration(profile, button);
+            if (!identityVerified) {
+                message.textContent = "Configuration opened without automatic sign-in because this device's identity could not be verified.";
+                message.classList.remove("is-error");
+            }
         } catch (error) {
             message.textContent = error.message;
             message.classList.add("is-error");
