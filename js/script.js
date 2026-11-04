@@ -2,8 +2,9 @@ const DB_NAME = "ESPWakeDB";
 const STORE_NAME = "settings";
 const POLL_INTERVAL_MS = 7000;
 const REQUEST_TIMEOUT_MS = 12000;
-const STATUS_REQUEST_TIMEOUT_MS = 2000;
-const IDENTITY_PROBE_TIMEOUT_MS = 2000;
+const STATUS_REQUEST_TIMEOUT_MS = 1500;
+const STATUS_REQUEST_ATTEMPTS = 3;
+const IDENTITY_PROBE_TIMEOUT_MS = 1500;
 const ENDPOINT_REFRESH_MS = 300000;
 const DEFAULT_PASSWORD = "12345678";
 
@@ -171,6 +172,7 @@ async function fetchDeviceIdentity(baseUrl, { signal, timeoutMs = IDENTITY_PROBE
     signal?.addEventListener("abort", abort, { once: true });
     const timeout = setTimeout(abort, timeoutMs);
     try {
+        if (signal?.aborted) throw signal.reason;
         const response = await fetch(endpoint({ baseUrl: normalized }, "api/identity"), {
             method: "GET",
             credentials: "omit",
@@ -189,7 +191,7 @@ async function fetchDeviceIdentity(baseUrl, { signal, timeoutMs = IDENTITY_PROBE
     }
 }
 
-async function raceVerifiedCandidates(candidateUrls, expectedHostname) {
+async function raceVerifiedCandidates(candidateUrls, expectedHostname, { signal, onProbeFailure } = {}) {
     expectedHostname = normalizeDeviceHostname(expectedHostname);
     const normalizedUrls = candidateUrls.flatMap(candidate => {
         try {
@@ -203,13 +205,17 @@ async function raceVerifiedCandidates(candidateUrls, expectedHostname) {
     const failures = [];
     for (const baseUrl of uniqueUrls) {
         try {
-            const identity = await fetchDeviceIdentity(baseUrl);
+            const identity = await fetchDeviceIdentity(baseUrl, { signal });
             if (normalizeDeviceHostname(identity.device_hostname) !== expectedHostname) {
                 identityMismatches++;
                 continue;
             }
             return baseUrl;
-        } catch (error) { failures.push(error); }
+        } catch (error) {
+            onProbeFailure?.(baseUrl);
+            if (signal?.aborted) throw signal.reason;
+            failures.push(error);
+        }
     }
     if (identityMismatches && identityMismatches === uniqueUrls.length) throw identityMismatchError();
     const error = new Error("No reachable endpoint belongs to this ESP32. Check its hostname identity and network.");
@@ -217,8 +223,8 @@ async function raceVerifiedCandidates(candidateUrls, expectedHostname) {
     throw error;
 }
 
-async function refreshEndpointCandidates(profile, verifiedBaseUrl) {
-    const response = await request(profile, "api/endpoints", authenticatedRequestOptions(profile), verifiedBaseUrl);
+async function refreshEndpointCandidates(profile, verifiedBaseUrl, { signal } = {}) {
+    const response = await request(profile, "api/endpoints", authenticatedRequestOptions(profile), verifiedBaseUrl, { signal });
     const data = await response.json();
     const candidates = normalizeEndpointCandidates(data, profile.deviceHostname);
     profile.endpointCandidates = candidates;
@@ -227,7 +233,23 @@ async function refreshEndpointCandidates(profile, verifiedBaseUrl) {
     return candidates;
 }
 
-async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
+async function updateEndpointInventory(profile, verifiedBaseUrl, { forceProbe = false, signal } = {}) {
+    const isStale = !profile.endpointsUpdatedAt || Date.now() - profile.endpointsUpdatedAt >= ENDPOINT_REFRESH_MS;
+    const canRefresh = !profile.endpointsAttemptedAt || Date.now() - profile.endpointsAttemptedAt >= ENDPOINT_REFRESH_MS;
+    if (profile.deviceHostname && isStale && (forceProbe || canRefresh)) {
+        profile.endpointsAttemptedAt = Date.now();
+        try {
+            await refreshEndpointCandidates(profile, verifiedBaseUrl, { signal });
+        } catch (error) {
+            if (error.code === "DEVICE_IDENTITY_MISMATCH") throw error;
+            console.warn("Endpoint inventory unavailable; retaining the verified connection.", error);
+        }
+    }
+}
+
+async function resolveFastestEndpoint(profile, {
+    forceProbe = false, signal, skipInventory = false, failedUrls = new Set(),
+} = {}) {
     const configuredBaseUrl = normalizeBaseUrl(profile.baseUrl);
     let verifiedBaseUrl = "";
     if (!profile.deviceHostname) {
@@ -235,11 +257,12 @@ async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
             Date.now() - profile.identityProbeAt < ENDPOINT_REFRESH_MS) return configuredBaseUrl;
         profile.identityProbeAt = Date.now();
         try {
-            const identity = await fetchDeviceIdentity(configuredBaseUrl);
+            const identity = await fetchDeviceIdentity(configuredBaseUrl, { signal });
             bindDeviceIdentity(profile, identity);
             verifiedBaseUrl = configuredBaseUrl;
             await saveProfiles();
         } catch (error) {
+            if (signal?.aborted) throw signal.reason;
             // Old firmware's 404 lacks CORS headers, so browsers report a TypeError.
             // Compatibility is restricted to the URL explicitly saved by the user.
             if (error.status === 404 || error.status === 405 || error.name === "TypeError" ||
@@ -259,21 +282,14 @@ async function resolveFastestEndpoint(profile, { forceProbe = false } = {}) {
         const cachedUrls = profile.endpointCandidates
             .filter(candidate => candidate && typeof candidate.url === "string")
             .map(candidate => candidate.url);
-        const alternatives = [profile.selectedEndpoint, configuredBaseUrl, ...cachedUrls].filter(Boolean);
-        verifiedBaseUrl = await raceVerifiedCandidates(alternatives, profile.deviceHostname);
+        const alternatives = [profile.selectedEndpoint, configuredBaseUrl, ...cachedUrls].filter(Boolean)
+            .sort((left, right) => Number(failedUrls.has(normalizeBaseUrl(left))) - Number(failedUrls.has(normalizeBaseUrl(right))));
+        verifiedBaseUrl = await raceVerifiedCandidates(alternatives, profile.deviceHostname, {
+            signal, onProbeFailure: baseUrl => failedUrls.add(baseUrl),
+        });
     }
 
-    const isStale = !profile.endpointsUpdatedAt || Date.now() - profile.endpointsUpdatedAt >= ENDPOINT_REFRESH_MS;
-    const canRefresh = !profile.endpointsAttemptedAt || Date.now() - profile.endpointsAttemptedAt >= ENDPOINT_REFRESH_MS;
-    if (isStale && (forceProbe || canRefresh)) {
-        profile.endpointsAttemptedAt = Date.now();
-        try {
-            await refreshEndpointCandidates(profile, verifiedBaseUrl);
-        } catch (error) {
-            if (error.code === "DEVICE_IDENTITY_MISMATCH") throw error;
-            console.warn("Endpoint inventory unavailable; retaining the verified connection.", error);
-        }
-    }
+    if (!skipInventory) await updateEndpointInventory(profile, verifiedBaseUrl, { forceProbe, signal });
 
     const changed = profile.selectedEndpoint !== verifiedBaseUrl;
     profile.selectedEndpoint = verifiedBaseUrl;
@@ -298,20 +314,33 @@ function withDeviceOperation(profile, operation) {
 
 async function requestDevice(profile, path, { forceProbe = false, retryStatus = false } = {}) {
     return withDeviceOperation(profile, async () => {
-        let baseUrl = await resolveFastestEndpoint(profile, { forceProbe });
-        try {
+        if (path !== "stt" || !retryStatus) {
+            const baseUrl = await resolveFastestEndpoint(profile, { forceProbe });
             return await request(profile, path, authenticatedRequestOptions(profile), baseUrl);
-        } catch (error) {
-            if (path !== "stt" || !retryStatus || !profile.deviceHostname || (error.status && error.status < 500)) throw error;
-            const candidates = [profile.baseUrl, ...profile.endpointCandidates.map(candidate => candidate?.url)]
-                .filter(url => {
-                    try { return url && normalizeBaseUrl(url) !== baseUrl; }
-                    catch { return false; }
+        }
+        const failedUrls = new Set();
+        for (let attempt = 1; attempt <= STATUS_REQUEST_ATTEMPTS; attempt++) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), STATUS_REQUEST_TIMEOUT_MS);
+            let baseUrl;
+            try {
+                baseUrl = await resolveFastestEndpoint(profile, {
+                    forceProbe: forceProbe && attempt === 1, signal: controller.signal, skipInventory: true, failedUrls,
                 });
-            baseUrl = await raceVerifiedCandidates(candidates, profile.deviceHostname);
-            profile.selectedEndpoint = baseUrl;
-            await saveProfiles();
-            return request(profile, path, authenticatedRequestOptions(profile), baseUrl);
+                const response = await request(profile, path, authenticatedRequestOptions(profile), baseUrl, { signal: controller.signal });
+                await updateEndpointInventory(profile, baseUrl, { signal: controller.signal });
+                return response;
+            } catch (error) {
+                if (baseUrl) failedUrls.add(normalizeBaseUrl(baseUrl));
+                const transportFailure = controller.signal.aborted || error.name === "AbortError" ||
+                    error.name === "TimeoutError" || error.name === "TypeError" ||
+                    (Array.isArray(error.cause) && error.cause.length > 0 &&
+                        error.cause.every(cause => ["AbortError", "TimeoutError", "TypeError"].includes(cause.name)));
+                if (!transportFailure || attempt === STATUS_REQUEST_ATTEMPTS) throw error;
+                console.warn(`Status transport attempt ${attempt}/${STATUS_REQUEST_ATTEMPTS} failed; retrying.`, error);
+            } finally {
+                clearTimeout(timeout);
+            }
         }
     });
 }
@@ -341,11 +370,14 @@ function setSettingsVisible(card, visible) {
     configureButton.classList.toggle("danger-button", visible);
 }
 
-async function request(profile, path, options = {}, baseUrl = profile.baseUrl) {
+async function request(profile, path, options = {}, baseUrl = profile.baseUrl, { signal } = {}) {
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     const timeoutMs = path === "stt" || path === "api/endpoints" ? STATUS_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
+        if (signal?.aborted) throw signal.reason;
         const response = await fetch(endpoint({ baseUrl }, path), {
             cache: "no-store",
             ...options,
@@ -360,6 +392,7 @@ async function request(profile, path, options = {}, baseUrl = profile.baseUrl) {
         return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
     } finally {
         clearTimeout(timeout);
+        signal?.removeEventListener("abort", abort);
     }
 }
 

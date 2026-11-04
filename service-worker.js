@@ -1,9 +1,9 @@
-const CACHE_NAME = "esp-wake-shell-v9.6-tls-parser";
+const CACHE_NAME = "esp-wake-shell-v9.7-status-retries";
 const APP_SHELL = [
     "./",
     "./index.html",
     "./css/styles.css?v=20261010-config-loading",
-    "./js/script.js?v=20261101-tls-parser",
+    "./js/script.js?v=20261104-status-retries",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",
