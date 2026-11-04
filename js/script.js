@@ -2,8 +2,8 @@ const DB_NAME = "ESPWakeDB";
 const STORE_NAME = "settings";
 const POLL_INTERVAL_MS = 7000;
 const REQUEST_TIMEOUT_MS = 12000;
-const STATUS_REQUEST_TIMEOUT_MS = 700;
-const STATUS_REQUEST_ATTEMPTS = 7;
+const STATUS_REQUEST_TIMEOUT_MS = 4000;
+const STATUS_REQUEST_ATTEMPTS = 1;
 const IDENTITY_PROBE_TIMEOUT_MS = 5000;
 const ENDPOINT_REFRESH_MS = 300000;
 const DEFAULT_PASSWORD = "12345678";
@@ -321,7 +321,7 @@ async function requestDevice(profile, path, { forceProbe = false, retryStatus = 
         const failedUrls = new Set();
         for (let attempt = 1; attempt <= STATUS_REQUEST_ATTEMPTS; attempt++) {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), STATUS_REQUEST_TIMEOUT_MS);
+            const timeout = setTimeout(() => controller.abort(), STATUS_REQUEST_TIMEOUT_MS * attempt);
             let baseUrl;
             try {
                 baseUrl = await resolveFastestEndpoint(profile, {
