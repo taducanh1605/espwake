@@ -777,7 +777,8 @@ async function openRemoteDesktop(profile, card, button) {
     button.disabled = true;
     const origin = "https://taducanh1605.github.io";
     const nonce = crypto.randomUUID();
-    let cleanup, refreshing = false;
+    const broker = typeof BroadcastChannel === "function" ? new BroadcastChannel(`njk-handoff-${nonce}`) : null;
+    let cleanup, refreshing = false, disposed = false;
     async function freshTicket() {
         const deadline = Date.now() + 75000;
         for (;;) {
@@ -790,31 +791,37 @@ async function openRemoteDesktop(profile, card, button) {
                 cardPart(card, "message").textContent = "";
                 return { host: host.origin, ticket: data.ticket };
             } catch (error) {
-                if (error.status !== 503 || Date.now() >= deadline || remoteWindow.closed) throw error;
+                if (error.status !== 503 || Date.now() >= deadline || disposed) throw error;
                 cardPart(card, "message").textContent = "Waiting for the Windows helper to refresh remote access…";
                 await new Promise(resolve => setTimeout(resolve, 2500));
             }
         }
     }
-    const receive = async event => {
-        if (event.source !== remoteWindow || event.origin !== origin || event.data?.nonce !== nonce) return;
-        if (event.data.type === "njk-handoff-complete") { cleanup(); return; }
-        if (event.data.type !== "njk-refresh-ticket" || refreshing) return;
+    const refresh = async (message, reply) => {
+        if (disposed || message?.nonce !== nonce) return;
+        if (message.type === "njk-handoff-complete") { cleanup(); return; }
+        if (message.type !== "njk-refresh-ticket" || refreshing) return;
         refreshing = true;
         try {
             const data = await freshTicket();
-            remoteWindow.postMessage({ type: "njk-fresh-ticket", nonce, ...data }, origin);
+            if (!disposed) reply({ type: "njk-fresh-ticket", nonce, ...data });
         } catch (error) {
-            remoteWindow.postMessage({ type: "njk-fresh-ticket", nonce, error: error.message }, origin);
+            if (!disposed) reply({ type: "njk-fresh-ticket", nonce, error: error.message });
         } finally { refreshing = false; }
     };
+    const receive = event => {
+        if (event.source !== remoteWindow || event.origin !== origin) return;
+        return refresh(event.data, message => remoteWindow.postMessage(message, origin));
+    };
     window.addEventListener("message", receive);
-    const closedTimer = setInterval(() => { if (remoteWindow.closed) cleanup(); }, 1000);
-    cleanup = () => { clearInterval(closedTimer); window.removeEventListener("message", receive); };
+    if (broker) broker.onmessage = event => refresh(event.data, message => broker.postMessage(message));
+    // A detached standalone window may report closed while still running.
+    const closedTimer = setTimeout(() => cleanup(), 240000);
+    cleanup = () => { disposed = true; clearTimeout(closedTimer); window.removeEventListener("message", receive); broker?.close(); };
     try {
         const data = await freshTicket();
         const fragment = new URLSearchParams({ ...data, fullscreen: "1", return: "espwake", nonce });
-        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/?v=20261108-controls2#${fragment}`;
+        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/?v=20261108-auth3#${fragment}`;
     } catch (error) {
         cleanup();
         remoteWindow.close();
