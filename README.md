@@ -41,6 +41,10 @@ control password. The device setting is a separate persisted select and defaults
 to disabled. An offline PC or disabled RemotePC has a disabled monitor button
 with a dark icon and red background; its tooltip explains why. Save that same
 password in this computer's ESP Wake profile.
+While the monitor action is preparing access it shows a spinner, a green
+background and `aria-busy`; polling does not turn that busy icon into an
+unavailable/red indicator. Completion or failure restores the monitor icon.
+Dark/red remains reserved for an offline PC or disabled/unavailable RemotePC.
 The action requests `POST /api/remote` from the identity-verified ESP32, then opens
 `/remotepc/` and connects automatically. Approve the host certificate if required.
 Before leaving ESPWake, it reserves access with the Host's
