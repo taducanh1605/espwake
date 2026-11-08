@@ -777,16 +777,32 @@ function openCertificateCheck(profile) {
 async function openRemoteDesktop(profile, card, button) {
     if (remoteLaunches.has(profile.id)) return;
     if (!profile.password) throw new Error("Configure an ESP32 control password before launching remote desktop.");
-    const remoteWindow = window.open("about:blank", "_blank");
+    const sameWindow = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true ||
+        window.matchMedia("(pointer: coarse)").matches;
+    const remoteWindow = sameWindow ? window : window.open("about:blank", `njk-remote-${profile.id}`);
     if (!remoteWindow) throw new Error("Allow pop-ups to open RemotePC.");
-    remoteWindow.document.open();
-    remoteWindow.document.write(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1">
+    if (!sameWindow) {
+        remoteWindow.document.open();
+        remoteWindow.document.write(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Opening RemotePC</title><body style="margin:0;padding:24px;background:#edf1ec;color:#17211d;font:16px system-ui">
         <main style="max-width:520px;margin:auto"><h1>Opening RemotePC</h1>
         <p id="handoff-status" role="status" aria-live="polite">Checking the computer and remote access...</p>
         <p>Keep ESPWake open until the stream connects.</p></main></body></html>`);
-    remoteWindow.document.close();
-    const loadingStatus = remoteWindow.document.getElementById("handoff-status");
+        remoteWindow.document.close();
+    }
+    const loadingStatus = sameWindow ? cardPart(card, "message") : remoteWindow.document.getElementById("handoff-status");
+    let viewerId;
+    try {
+        const key = `espwake-remote-viewer-${profile.id}`;
+        viewerId = localStorage.getItem(key);
+        if (!/^[a-f0-9]{32}$/.test(viewerId || "")) {
+            viewerId = crypto.randomUUID().replaceAll("-", "");
+            localStorage.setItem(key, viewerId);
+        }
+    } catch (error) {
+        if (!sameWindow) remoteWindow.close();
+        throw new Error(`Remote device identity could not be saved: ${error.message}`);
+    }
     remoteLaunches.add(profile.id);
     button.disabled = true;
     const origin = "https://taducanh1605.github.io";
@@ -802,26 +818,28 @@ async function openRemoteDesktop(profile, card, button) {
                 const host = new URL(data.host);
                 if (host.protocol !== "https:" || host.username || host.password || host.pathname !== "/" || host.search || host.hash ||
                     !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
-                // Validate before switching away from the dashboard: an installed PWA may suspend its opener.
+                // Reserve access before leaving: an installed PWA may suspend its opener.
                 let checked;
                 try {
-                    checked = await fetch(`${host.origin}/api/connect-check`, {
+                    checked = await fetch(`${host.origin}/api/connect-prepare`, {
                         method: "POST", headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ ticket: data.ticket }), cache: "no-store", signal: AbortSignal.timeout(5000),
                     });
                 } catch (error) {
-                    if (!(error instanceof TypeError)) throw new Error(`Njk Host ticket check failed: ${error.message}. Check the host network and gateway.`);
-                    console.warn("Host certificate/network check needs RemotePC recovery:", error.message);
+                    const failure = new Error(`Njk Host access preparation failed: ${error.message}. Check the host network, approve its certificate, then retry RemotePC.`);
+                    failure.trustURL = `${host.origin}/trust?origin=${encodeURIComponent(origin)}&nonce=${encodeURIComponent(nonce)}`;
+                    throw failure;
                 }
                 if (checked?.status === 401) {
                     const error = new Error("Host rejected stale ESP32 access; waiting for the Windows helper to refresh it.");
                     error.status = 503;
                     throw error;
                 }
-                if (checked && !checked.ok && checked.status !== 404) throw new Error(`Njk Host ticket check failed (HTTP ${checked.status}). Check the host gateway.`);
-                if (checked?.status === 404) console.warn("Older Njk Host cannot preflight tickets; RemotePC will validate access.");
+                if (!checked.ok) throw new Error(`Njk Host access preparation failed (HTTP ${checked.status}). Update Njk Host and its browser gateway.`);
+                const prepared = await checked.json();
+                if (!/^[a-f0-9]{32}$/.test(prepared.ticket || "") || prepared.expiresIn < 120) throw new Error("Njk Host returned invalid prepared access.");
                 cardPart(card, "message").textContent = "";
-                return { host: host.origin, ticket: data.ticket };
+                return { host: host.origin, ticket: prepared.ticket };
             } catch (error) {
                 if (error.status !== 503 || Date.now() >= deadline || disposed) throw error;
                 cardPart(card, "message").textContent = "Waiting for the Windows helper to refresh remote access…";
@@ -853,11 +871,11 @@ async function openRemoteDesktop(profile, card, button) {
     cleanup = () => { disposed = true; clearTimeout(closedTimer); window.removeEventListener("message", receive); broker?.close(); };
     try {
         const data = await freshTicket();
-        const fragment = new URLSearchParams({ ...data, fullscreen: "1", return: "espwake", nonce });
-        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/?v=20261108-auth4#${fragment}`;
+        const fragment = new URLSearchParams({ ...data, fullscreen: "1", return: "espwake", nonce, clientId: viewerId, prepared: "1", sameWindow: sameWindow ? "1" : "0" });
+        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/#${fragment}`;
     } catch (error) {
         cleanup();
-        remoteWindow.close();
+        if (!sameWindow) remoteWindow.close();
         throw error;
     } finally {
         remoteLaunches.delete(profile.id);
@@ -937,6 +955,14 @@ computersList.addEventListener("click", async (event) => {
             message.textContent = error.message;
             message.classList.add("is-error");
             cardPart(card, "device-status").textContent = error.message;
+            if (error.trustURL) {
+                const trust = document.createElement("a");
+                trust.href = error.trustURL;
+                trust.target = "_blank";
+                trust.rel = "noopener";
+                trust.textContent = " Open host certificate check";
+                message.appendChild(trust);
+            }
         }
     } else if (button.dataset.action === "trust-certificate") {
         openCertificateCheck(profile);
