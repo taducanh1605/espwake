@@ -1,9 +1,9 @@
-const CACHE_NAME = "esp-wake-shell-v20-remotepc";
+const CACHE_NAME = "esp-wake-shell-v21-remotepc";
 const APP_SHELL = [
     "./",
     "./index.html",
-    "./css/styles.css?v=20261108-remotepc3",
-    "./js/script.js?v=20261108-remotepc11",
+    "./css/styles.css?v=20261108-remotepc4",
+    "./js/script.js?v=20261108-remotepc12",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",
@@ -18,7 +18,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
     event.waitUntil(
         caches.keys()
-            .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+            .then((keys) => Promise.all(keys.filter((key) => key.startsWith("esp-wake-") && key !== CACHE_NAME).map((key) => caches.delete(key))))
             .then(() => self.clients.claim()),
     );
 });

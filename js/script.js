@@ -827,7 +827,7 @@ async function openRemoteDesktop(profile, card, button) {
     try {
         const data = await freshTicket();
         const fragment = new URLSearchParams({ ...data, fullscreen: "1", return: "espwake", nonce });
-        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/?v=20261108-auth3#${fragment}`;
+        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/?v=20261108-auth4#${fragment}`;
     } catch (error) {
         cleanup();
         remoteWindow.close();
