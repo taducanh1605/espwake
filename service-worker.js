@@ -1,9 +1,9 @@
-const CACHE_NAME = "esp-wake-shell-v9.10-status-retries";
+const CACHE_NAME = "esp-wake-shell-v10-remotepc";
 const APP_SHELL = [
     "./",
     "./index.html",
-    "./css/styles.css?v=20261010-config-loading",
-    "./js/script.js?v=20261104-status-retries",
+    "./css/styles.css?v=20261108-remotepc",
+    "./js/script.js?v=20261108-remotepc",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",

@@ -107,6 +107,8 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
     font-size: 1.4rem;
 }
 .order-button { font-size: 1.15rem; }
+.remote-button { display: inline-grid; place-items: center; background: var(--lime); }
+.remote-button svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .danger-button { color: var(--red); }
 .icon-button.is-loading { animation: rotate 900ms linear infinite; }
 .form-actions > [data-action="config"] {

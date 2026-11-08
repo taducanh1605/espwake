@@ -299,6 +299,7 @@ async function resolveFastestEndpoint(profile, {
 }
 
 const deviceOperations = new Map();
+const remoteLaunches = new Set();
 
 function withDeviceOperation(profile, operation) {
     const key = normalizeBaseUrl(profile.baseUrl);
@@ -436,6 +437,7 @@ function showConnectionHelp(card, profile) {
 }
 
 function renderPowerState(card, state) {
+    card.querySelector('[data-action="remote"]').disabled = true;
     card.dataset.deviceState = state;
     const status = cardPart(card, "device-status");
     const signal = cardPart(card, "device-signal");
@@ -563,6 +565,9 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
         if (!device || typeof device.stat !== "string") throw new Error("Invalid status response");
 
         renderPowerState(card, device.stat.toLowerCase());
+        const remote = card.querySelector('[data-action="remote"]');
+        remote.disabled = device.remote?.available !== true || !profile.password || remoteLaunches.has(profile.id);
+        remote.title = remote.disabled ? "Waiting for Njk Host and an ESP32 control password" : "Connect to remote desktop";
         setConnection(card, "online", "ESP Connected");
         hideConnectionHelp(card);
         cardPart(card, "last-updated").textContent = `Updated at ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
@@ -762,6 +767,31 @@ function openCertificateCheck(profile) {
     window.open(endpoint({ baseUrl }, "certificate-check"), "_blank", "noopener,noreferrer");
 }
 
+async function openRemoteDesktop(profile, card, button) {
+    if (remoteLaunches.has(profile.id)) return;
+    if (!profile.password) throw new Error("Configure an ESP32 control password before launching remote desktop.");
+    const remoteWindow = window.open("about:blank", "_blank");
+    if (!remoteWindow) throw new Error("Allow pop-ups to open RemotePC.");
+    remoteLaunches.add(profile.id);
+    button.disabled = true;
+    try {
+        const response = await requestDevice(profile, "api/remote", { forceProbe: true });
+        const data = await response.json();
+        const host = new URL(data.host);
+        if (host.protocol !== "https:" || host.username || host.password || host.pathname !== "/" || host.search || host.hash ||
+            !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
+        const fragment = new URLSearchParams({ host: host.origin, ticket: data.ticket });
+        remoteWindow.opener = null;
+        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/#${fragment}`;
+    } catch (error) {
+        remoteWindow.close();
+        throw error;
+    } finally {
+        remoteLaunches.delete(profile.id);
+        await refreshProfile(profile, { quiet: true });
+    }
+}
+
 computersList.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.target.closest('[data-role="settings-form"]');
@@ -826,6 +856,14 @@ computersList.addEventListener("click", async (event) => {
         } catch (error) {
             message.textContent = error.message;
             message.classList.add("is-error");
+        }
+    } else if (button.dataset.action === "remote") {
+        try {
+            await openRemoteDesktop(profile, card, button);
+        } catch (error) {
+            message.textContent = error.message;
+            message.classList.add("is-error");
+            cardPart(card, "device-status").textContent = error.message;
         }
     } else if (button.dataset.action === "trust-certificate") {
         openCertificateCheck(profile);
