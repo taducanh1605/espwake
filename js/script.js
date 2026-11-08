@@ -782,7 +782,7 @@ async function openRemoteDesktop(profile, card, button) {
             !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
         const fragment = new URLSearchParams({ host: host.origin, ticket: data.ticket, fullscreen: "1" });
         remoteWindow.opener = null;
-        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/#${fragment}`;
+        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/?v=20261108-autoconnect#${fragment}`;
     } catch (error) {
         remoteWindow.close();
         throw error;
