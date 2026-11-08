@@ -566,8 +566,9 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
 
         renderPowerState(card, device.stat.toLowerCase());
         const remote = card.querySelector('[data-action="remote"]');
-        remote.disabled = device.remote?.available !== true || !profile.password || remoteLaunches.has(profile.id);
-        remote.title = remote.disabled ? "Waiting for Njk Host and an ESP32 control password" : "Connect to remote desktop";
+        remote.disabled = !device.remote?.host || !profile.password || remoteLaunches.has(profile.id);
+        remote.title = remote.disabled ? "Waiting for Njk Host and an ESP32 control password"
+            : device.remote.available ? "Connect to remote desktop" : "Connect when the helper refreshes access";
         setConnection(card, "online", "ESP Connected");
         hideConnectionHelp(card);
         cardPart(card, "last-updated").textContent = `Updated at ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
@@ -774,16 +775,47 @@ async function openRemoteDesktop(profile, card, button) {
     if (!remoteWindow) throw new Error("Allow pop-ups to open RemotePC.");
     remoteLaunches.add(profile.id);
     button.disabled = true;
+    const origin = "https://taducanh1605.github.io";
+    const nonce = crypto.randomUUID();
+    let cleanup, refreshing = false;
+    async function freshTicket() {
+        const deadline = Date.now() + 75000;
+        for (;;) {
+            try {
+                const response = await requestDevice(profile, "api/remote", { forceProbe: true });
+                const data = await response.json();
+                const host = new URL(data.host);
+                if (host.protocol !== "https:" || host.username || host.password || host.pathname !== "/" || host.search || host.hash ||
+                    !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
+                return { host: host.origin, ticket: data.ticket };
+            } catch (error) {
+                if (error.status !== 503 || Date.now() >= deadline || remoteWindow.closed) throw error;
+                cardPart(card, "message").textContent = "Waiting for the Windows helper to refresh remote access…";
+                await new Promise(resolve => setTimeout(resolve, 2500));
+            }
+        }
+    }
+    const receive = async event => {
+        if (event.source !== remoteWindow || event.origin !== origin || event.data?.nonce !== nonce) return;
+        if (event.data.type === "njk-handoff-complete") { cleanup(); return; }
+        if (event.data.type !== "njk-refresh-ticket" || refreshing) return;
+        refreshing = true;
+        try {
+            const data = await freshTicket();
+            remoteWindow.postMessage({ type: "njk-fresh-ticket", nonce, ...data }, origin);
+        } catch (error) {
+            remoteWindow.postMessage({ type: "njk-fresh-ticket", nonce, error: error.message }, origin);
+        } finally { refreshing = false; }
+    };
+    window.addEventListener("message", receive);
+    const closedTimer = setInterval(() => { if (remoteWindow.closed) cleanup(); }, 1000);
+    cleanup = () => { clearInterval(closedTimer); window.removeEventListener("message", receive); };
     try {
-        const response = await requestDevice(profile, "api/remote", { forceProbe: true });
-        const data = await response.json();
-        const host = new URL(data.host);
-        if (host.protocol !== "https:" || host.username || host.password || host.pathname !== "/" || host.search || host.hash ||
-            !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
-        const fragment = new URLSearchParams({ host: host.origin, ticket: data.ticket, fullscreen: "1" });
-        remoteWindow.opener = null;
-        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/?v=20261108-playback2#${fragment}`;
+        const data = await freshTicket();
+        const fragment = new URLSearchParams({ ...data, fullscreen: "1", return: "espwake", nonce });
+        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/?v=20261108-controls#${fragment}`;
     } catch (error) {
+        cleanup();
         remoteWindow.close();
         throw error;
     } finally {
