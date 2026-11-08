@@ -780,7 +780,7 @@ async function openRemoteDesktop(profile, card, button) {
         const host = new URL(data.host);
         if (host.protocol !== "https:" || host.username || host.password || host.pathname !== "/" || host.search || host.hash ||
             !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
-        const fragment = new URLSearchParams({ host: host.origin, ticket: data.ticket });
+        const fragment = new URLSearchParams({ host: host.origin, ticket: data.ticket, fullscreen: "1" });
         remoteWindow.opener = null;
         remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/#${fragment}`;
     } catch (error) {
