@@ -569,9 +569,11 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
         const pcOnline = ["connected", "up"].includes(device.stat.toLowerCase());
         const remoteEnabled = device.remote?.enabled === true;
         const unavailable = !pcOnline || !remoteEnabled || !device.remote?.host || !profile.password;
-        remote.disabled = unavailable || remoteLaunches.has(profile.id);
+        const launching = remoteLaunches.has(profile.id);
+        remote.disabled = unavailable || launching;
         remote.classList.toggle("is-unavailable", unavailable);
-        remote.title = !remoteEnabled ? "RemotePC is disabled. Enable it in the ESP32 configuration."
+        remote.title = launching ? "Preparing RemotePC access..."
+            : !remoteEnabled ? "RemotePC is disabled. Enable it in the ESP32 configuration."
             : !pcOnline ? "PC is offline. Wake it before connecting."
             : !device.remote?.host || !profile.password ? "Waiting for Njk Host and an ESP32 control password"
             : device.remote.available ? "Connect to remote desktop" : "Connect when the helper refreshes access";
@@ -804,6 +806,15 @@ async function openRemoteDesktop(profile, card, button) {
         throw new Error(`Remote device identity could not be saved: ${error.message}`);
     }
     remoteLaunches.add(profile.id);
+    const originalIcon = button.innerHTML;
+    const spinner = document.createElement("span");
+    spinner.className = "config-spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    button.replaceChildren(spinner);
+    button.classList.add("is-connecting");
+    button.setAttribute("aria-busy", "true");
+    button.setAttribute("aria-label", "Preparing RemotePC access");
+    button.title = "Preparing RemotePC access...";
     button.disabled = true;
     const origin = "https://taducanh1605.github.io";
     const nonce = crypto.randomUUID();
@@ -879,6 +890,12 @@ async function openRemoteDesktop(profile, card, button) {
         throw error;
     } finally {
         remoteLaunches.delete(profile.id);
+        button.innerHTML = originalIcon;
+        button.classList.remove("is-connecting");
+        button.removeAttribute("aria-busy");
+        button.setAttribute("aria-label", "Open remote desktop");
+        button.disabled = button.classList.contains("is-unavailable");
+        button.title = "Open remote desktop";
         await refreshProfile(profile, { quiet: true });
     }
 }

@@ -117,6 +117,13 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
     opacity: 1;
 }
 .remote-button:disabled svg, .remote-button.is-unavailable svg { opacity: 0.6; }
+.remote-button.is-connecting {
+    background: var(--lime);
+    border-color: var(--forest);
+    color: var(--forest);
+    opacity: 1;
+    cursor: progress;
+}
 .remote-button svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .danger-button { color: var(--red); }
 .icon-button.is-loading { animation: rotate 900ms linear infinite; }
