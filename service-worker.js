@@ -1,9 +1,9 @@
-const CACHE_NAME = "esp-wake-shell-v16-remotepc";
+const CACHE_NAME = "esp-wake-shell-v17-remotepc";
 const APP_SHELL = [
     "./",
     "./index.html",
     "./css/styles.css?v=20261108-remotepc2",
-    "./js/script.js?v=20261108-remotepc7",
+    "./js/script.js?v=20261108-remotepc8",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",
