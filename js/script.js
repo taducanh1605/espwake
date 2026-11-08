@@ -779,6 +779,14 @@ async function openRemoteDesktop(profile, card, button) {
     if (!profile.password) throw new Error("Configure an ESP32 control password before launching remote desktop.");
     const remoteWindow = window.open("about:blank", "_blank");
     if (!remoteWindow) throw new Error("Allow pop-ups to open RemotePC.");
+    remoteWindow.document.open();
+    remoteWindow.document.write(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Opening RemotePC</title><body style="margin:0;padding:24px;background:#edf1ec;color:#17211d;font:16px system-ui">
+        <main style="max-width:520px;margin:auto"><h1>Opening RemotePC</h1>
+        <p id="handoff-status" role="status" aria-live="polite">Checking the computer and remote access...</p>
+        <p>Keep ESPWake open until the stream connects.</p></main></body></html>`);
+    remoteWindow.document.close();
+    const loadingStatus = remoteWindow.document.getElementById("handoff-status");
     remoteLaunches.add(profile.id);
     button.disabled = true;
     const origin = "https://taducanh1605.github.io";
@@ -817,6 +825,7 @@ async function openRemoteDesktop(profile, card, button) {
             } catch (error) {
                 if (error.status !== 503 || Date.now() >= deadline || disposed) throw error;
                 cardPart(card, "message").textContent = "Waiting for the Windows helper to refresh remote access…";
+                loadingStatus.textContent = "Waiting for the Windows helper to refresh remote access. This can take up to 75 seconds.";
                 await new Promise(resolve => setTimeout(resolve, 2500));
             }
         }
