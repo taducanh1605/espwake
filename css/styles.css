@@ -350,4 +350,11 @@ input::placeholder { color: #97a098; }
         animation-duration: 0.01ms !important;
         transition-duration: 0.01ms !important;
     }
+
+    @media (max-width: 480px) {
+        .computer-header { grid-template-columns: minmax(0, 1fr); }
+        .computer-identity { flex-direction: row; align-items: center; justify-content: space-between; }
+        .computer-identity h2 { min-width: 0; flex: 1; }
+        .card-tools { width: 100%; justify-content: flex-end; }
+    }
 }
