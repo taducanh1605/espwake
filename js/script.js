@@ -787,6 +787,7 @@ async function openRemoteDesktop(profile, card, button) {
                 const host = new URL(data.host);
                 if (host.protocol !== "https:" || host.username || host.password || host.pathname !== "/" || host.search || host.hash ||
                     !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
+                cardPart(card, "message").textContent = "";
                 return { host: host.origin, ticket: data.ticket };
             } catch (error) {
                 if (error.status !== 503 || Date.now() >= deadline || remoteWindow.closed) throw error;
