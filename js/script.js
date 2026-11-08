@@ -566,8 +566,14 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
 
         renderPowerState(card, device.stat.toLowerCase());
         const remote = card.querySelector('[data-action="remote"]');
-        remote.disabled = !device.remote?.host || !profile.password || remoteLaunches.has(profile.id);
-        remote.title = remote.disabled ? "Waiting for Njk Host and an ESP32 control password"
+        const pcOnline = ["connected", "up"].includes(device.stat.toLowerCase());
+        const remoteEnabled = device.remote?.enabled === true;
+        const unavailable = !pcOnline || !remoteEnabled || !device.remote?.host || !profile.password;
+        remote.disabled = unavailable || remoteLaunches.has(profile.id);
+        remote.classList.toggle("is-unavailable", unavailable);
+        remote.title = !remoteEnabled ? "RemotePC is disabled. Enable it in the ESP32 configuration."
+            : !pcOnline ? "PC is offline. Wake it before connecting."
+            : !device.remote?.host || !profile.password ? "Waiting for Njk Host and an ESP32 control password"
             : device.remote.available ? "Connect to remote desktop" : "Connect when the helper refreshes access";
         setConnection(card, "online", "ESP Connected");
         hideConnectionHelp(card);
