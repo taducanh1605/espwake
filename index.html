@@ -13,7 +13,7 @@
     <link rel="manifest" href="manifest.webmanifest?v=3">
     <link rel="icon" href="icons/esp-wake-192.png?v=3" type="image/png">
     <link rel="apple-touch-icon" href="icons/esp-wake-192.png?v=3">
-    <link rel="stylesheet" href="css/styles.css?v=20261108-remotepc5">
+    <link rel="stylesheet" href="css/styles.css?v=20261109-vault2">
 </head>
 <body>
     <main class="app-shell">
@@ -24,15 +24,65 @@
             </div>
         </header>
 
-        <section aria-label="Computers">
+        <section id="vault-panel" class="vault-panel" aria-labelledby="vault-title">
+            <h2 id="vault-title">Encrypted settings</h2>
+            <p id="vault-description">Loading encrypted storage...</p>
+            <form id="vault-form" hidden>
+                <label>Settings passphrase
+                    <input id="vault-password" type="password" autocomplete="current-password" minlength="12" maxlength="1024" required aria-describedby="vault-description">
+                </label>
+                <label id="vault-confirm-label" hidden>Confirm settings passphrase
+                    <input id="vault-confirm" type="password" autocomplete="new-password" maxlength="1024">
+                </label>
+                <button id="vault-submit" class="add-button" type="submit">Unlock settings</button>
+            </form>
+            <p id="vault-message" class="form-message" role="status" aria-live="polite"></p>
+        </section>
+
+        <section id="dashboard" aria-label="Computers" hidden>
+            <div class="configuration-tools vault-tools" aria-label="Encrypted settings">
+                <button id="lock-settings" class="add-button" type="button">Lock settings</button>
+            </div>
+            <p id="configuration-message" class="form-message" role="status" aria-live="polite"></p>
             <div id="computers-list" class="computers-list"></div>
             <div id="empty-state" class="empty-state" hidden>
                 <h2>No computers yet</h2>
                 <p>Add a computer to configure its ESP32 connection.</p>
             </div>
-            <button id="add-computer" class="add-button add-computer-footer" type="button"><span aria-hidden="true">+</span> Add computer</button>
+            <div class="configuration-tools computer-add-tools" aria-label="Add computers">
+                <button id="add-computer" class="add-button" type="button"><span aria-hidden="true">+</span> Add computer</button>
+                <button id="import-config" class="add-button" type="button">Import computer</button>
+            </div>
+            <button id="export-all" class="add-button export-all-footer" type="button">Export all</button>
         </section>
     </main>
+
+    <dialog id="transfer-dialog" aria-labelledby="transfer-title" aria-describedby="transfer-description">
+        <form id="transfer-form">
+            <h2 id="transfer-title">Export encrypted configuration</h2>
+            <p id="transfer-description"></p>
+            <label id="transfer-file-label" hidden>Encrypted configuration file (maximum 1 MB)
+                <input id="transfer-file" type="file" accept=".espwake,.json,application/json">
+            </label>
+            <label id="transfer-mode-label" hidden>Import mode
+                <select id="transfer-mode">
+                    <option value="merge">Add new computers; keep existing settings</option>
+                    <option value="replace">Replace all computers</option>
+                </select>
+            </label>
+            <label>File passphrase
+                <input id="transfer-password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+            </label>
+            <label id="transfer-confirm-label">Confirm file passphrase
+                <input id="transfer-confirm" type="password" autocomplete="new-password" maxlength="1024">
+            </label>
+            <p id="transfer-message" class="form-message" role="status" aria-live="polite"></p>
+            <div class="configuration-tools">
+                <button id="transfer-submit" class="add-button" type="submit">Export file</button>
+                <button id="transfer-cancel" class="add-button" type="button">Cancel</button>
+            </div>
+        </form>
+    </dialog>
 
     <template id="computer-template">
         <article class="computer-card">
@@ -78,10 +128,10 @@
 
             <form data-role="settings-form" class="computer-settings">
                 <label>Computer name
-                    <input data-field="name" type="text" autocomplete="off" placeholder="Office PC">
+                    <input data-field="name" type="text" autocomplete="off" maxlength="120" placeholder="Office PC">
                 </label>
                 <label>ESP32 address or proxy URL
-                    <input data-field="base-url" type="text" autocomplete="url" spellcheck="false" placeholder="192.168.1.28:2443 or https://.../port/32443">
+                    <input data-field="base-url" type="text" autocomplete="url" maxlength="2048" spellcheck="false" placeholder="192.168.1.28:2443 or https://.../port/32443">
                 </label>
                 <div class="identity-controls">
                     <span>Device identity is bound to the ESP32 hostname, never to a discovered IP address.</span>
@@ -89,11 +139,14 @@
                 </div>
                 <label class="password-field">
                     <span class="password-label">New control password <span class="help-mark" aria-hidden="true">i</span></span>
-                    <input data-field="password" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                    <input data-field="password" type="password" autocomplete="new-password" maxlength="1024" placeholder="Leave blank to keep the saved password">
                     <span class="password-tooltip" data-role="password-tooltip" role="tooltip">The saved password is hidden. To remove password protection, first open ESP32 configuration and select “Remove the saved control password.” Then return here and click “Clear saved password.”</span>
                 </label>
                 <div class="password-storage-row">
                     <button class="clear-password-button" data-action="clear-password" type="button">Clear saved password</button>
+                </div>
+                <div class="profile-transfer-row">
+                    <button class="add-button" data-action="export" type="button">Export this computer</button>
                 </div>
                 <div class="form-actions">
                     <button class="primary-button" type="submit">💾</button>
@@ -107,6 +160,7 @@
         </article>
     </template>
     
-    <script src="js/script.js?v=20261108-remotepc16"></script>
+    <script src="js/encrypted-config.js?v=20261109-vault1"></script>
+    <script src="js/script.js?v=20261109-vault2"></script>
 </body>
 </html>

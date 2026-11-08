@@ -17,7 +17,25 @@ let database;
 let profiles = [];
 let pollTimer;
 let openSettingsProfileId = null;
+let vaultKey;
+let vaultSalt;
+let saveQueue = Promise.resolve();
 const requestsInFlight = new Set();
+const vaultForm = document.getElementById("vault-form");
+const vaultPassword = document.getElementById("vault-password");
+const vaultConfirm = document.getElementById("vault-confirm");
+const vaultMessage = document.getElementById("vault-message");
+const dashboard = document.getElementById("dashboard");
+const transferDialog = document.getElementById("transfer-dialog");
+const transferForm = document.getElementById("transfer-form");
+const transferPassword = document.getElementById("transfer-password");
+const transferConfirm = document.getElementById("transfer-confirm");
+const transferFile = document.getElementById("transfer-file");
+const transferMessage = document.getElementById("transfer-message");
+let transferMode = "export";
+let transferProfileId = null;
+let transferTrigger;
+let creatingVault = false;
 
 function openDatabase() {
     return new Promise((resolve, reject) => {
@@ -41,11 +59,15 @@ function readSetting(id) {
     });
 }
 
-function writeSetting(id, value) {
+function writeVault(value) {
     return new Promise((resolve, reject) => {
-        const request = database.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME).put({ id, value });
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
+        const transaction = database.transaction(STORE_NAME, "readwrite");
+        const store = transaction.objectStore(STORE_NAME);
+        store.put({ id: "encryptedProfiles", value });
+        ["profiles", "baseUrl", "password"].forEach(id => store.delete(id));
+        transaction.oncomplete = () => resolve();
+        transaction.onabort = () => reject(transaction.error || new Error("Encrypted settings transaction was aborted."));
+        transaction.onerror = () => reject(transaction.error);
     });
 }
 
@@ -63,11 +85,20 @@ function createProfile(overrides = {}) {
     };
 }
 
-async function loadProfiles() {
+async function loadProfiles(password) {
+    const encrypted = await readSetting("encryptedProfiles");
+    if (encrypted !== null) {
+        const unlocked = await EncryptedConfig.open(encrypted, password);
+        vaultKey = unlocked.key;
+        vaultSalt = unlocked.salt;
+        return unlocked.profiles;
+    }
     const storedProfiles = await readSetting("profiles");
+    let migrated;
     if (Array.isArray(storedProfiles)) {
-        return storedProfiles.map(profile => ({
+        migrated = storedProfiles.map(profile => ({
             ...profile,
+            baseUrl: profile.baseUrl ? normalizeBaseUrl(profile.baseUrl) : "",
             deviceHostname: (() => {
                 try { return profile.deviceHostname ? normalizeDeviceHostname(profile.deviceHostname) : ""; }
                 catch { return ""; }
@@ -75,21 +106,41 @@ async function loadProfiles() {
             endpointCandidates: Array.isArray(profile.endpointCandidates) ? profile.endpointCandidates : [],
             endpointsUpdatedAt: Number.isFinite(profile.endpointsUpdatedAt) ? profile.endpointsUpdatedAt : 0,
         }));
+    } else {
+        if (storedProfiles !== null) throw new Error("Legacy settings are damaged; they have not been overwritten.");
+        const oldBaseUrl = await readSetting("baseUrl");
+        const oldPassword = await readSetting("password");
+        migrated = oldBaseUrl || oldPassword ? [createProfile({
+            name: "Computer 1",
+            baseUrl: oldBaseUrl ? normalizeBaseUrl(oldBaseUrl) : "",
+            password: oldPassword || "",
+        })] : [];
     }
-
-    const oldBaseUrl = await readSetting("baseUrl");
-    const oldPassword = await readSetting("password");
-    const migrated = [createProfile({
-        name: "Computer 1",
-        baseUrl: oldBaseUrl || "",
-        password: oldPassword || "",
-    })];
-    await writeSetting("profiles", migrated);
+    const created = await EncryptedConfig.create(migrated, password);
+    await writeVault(created.envelope);
+    vaultKey = created.key;
+    vaultSalt = created.salt;
     return migrated;
 }
 
+function persistProfiles(value) {
+    if (!vaultKey) return Promise.reject(new Error("Unlock encrypted settings before saving."));
+    let snapshot;
+    try {
+        snapshot = EncryptedConfig.validateProfiles(value);
+    } catch (error) {
+        return Promise.reject(error);
+    }
+    const pending = saveQueue.then(async () => {
+        const encrypted = await EncryptedConfig.seal(snapshot, vaultKey, vaultSalt);
+        await writeVault(encrypted);
+    });
+    saveQueue = pending.then(() => {}, () => {});
+    return pending;
+}
+
 function saveProfiles() {
-    return writeSetting("profiles", profiles);
+    return persistProfiles(profiles);
 }
 
 function normalizeBaseUrl(value) {
@@ -98,6 +149,9 @@ function normalizeBaseUrl(value) {
     if (!/^https?:\/\//i.test(candidate)) candidate = `http://${candidate}`;
 
     const parsed = new URL(candidate);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+        throw new Error("Use an HTTP(S) address without embedded credentials.");
+    }
     parsed.search = "";
     parsed.hash = "";
     return parsed.href.replace(/\/+$/, "");
@@ -477,6 +531,7 @@ function renderPowerState(card, state) {
 function renderProfiles() {
     computersList.replaceChildren();
     emptyState.hidden = profiles.length > 0;
+    document.getElementById("export-all").disabled = profiles.length === 0;
 
     profiles.forEach((profile, index) => {
         const card = computerTemplate.content.firstElementChild.cloneNode(true);
@@ -908,6 +963,8 @@ computersList.addEventListener("submit", async (event) => {
     const profile = findProfile(card.dataset.profileId);
     const message = cardPart(card, "message");
     message.classList.remove("is-error");
+    const previousSettings = { ...profile };
+    let settingsSaved = false;
 
     try {
         profile.name = form.querySelector('[data-field="name"]').value.trim() || "Computer";
@@ -924,6 +981,7 @@ computersList.addEventListener("submit", async (event) => {
         else if (!profile.password) profile.password = DEFAULT_PASSWORD;
 
         await saveProfiles();
+        settingsSaved = true;
         cardPart(card, "display-name").textContent = profile.name;
         form.querySelector('[data-field="base-url"]').value = profile.baseUrl;
         form.querySelector('[data-field="password"]').value = "";
@@ -933,6 +991,7 @@ computersList.addEventListener("submit", async (event) => {
             : "Settings updated; the saved password was kept.";
         await refreshProfile(profile);
     } catch (error) {
+        if (!settingsSaved) Object.assign(profile, previousSettings);
         message.textContent = error.message || "Settings could not be saved.";
         message.classList.add("is-error");
     }
@@ -954,6 +1013,8 @@ computersList.addEventListener("click", async (event) => {
     } else if (button.dataset.action === "configure") {
         openSettingsProfileId = cardPart(card, "settings-form").hidden ? profile.id : null;
         setSettingsVisible(card, openSettingsProfileId === profile.id);
+    } else if (button.dataset.action === "export") {
+        openTransfer("export", profile.id, button);
     } else if (button.dataset.action === "config") {
         try {
             const identityVerified = await openProfileConfiguration(profile, button);
@@ -1031,40 +1092,236 @@ computersList.addEventListener("click", async (event) => {
         await moveProfile(profile, 1);
     } else if (button.dataset.action === "delete") {
         if (!window.confirm(`Delete ${profile.name}?`)) return;
+        const previousProfiles = profiles;
         profiles = profiles.filter((item) => item.id !== profile.id);
-        if (openSettingsProfileId === profile.id) openSettingsProfileId = null;
-        requestsInFlight.delete(profile.id);
-        await saveProfiles();
-        renderProfiles();
-        refreshAll();
+        try {
+            await saveProfiles();
+            if (openSettingsProfileId === profile.id) openSettingsProfileId = null;
+            requestsInFlight.delete(profile.id);
+            renderProfiles();
+            refreshAll();
+        } catch (error) {
+            profiles = previousProfiles;
+            message.textContent = error.message || "The computer could not be deleted.";
+            message.classList.add("is-error");
+        }
     }
 });
 
 addComputerButton.addEventListener("click", async () => {
-    const profile = createProfile({ name: `Computer ${profiles.length + 1}` });
-    profiles.push(profile);
-    await saveProfiles();
-    openSettingsProfileId = profile.id;
-    renderProfiles();
-    refreshAll();
-    findCard(profile.id)?.querySelector('[data-field="name"]').focus();
+    addComputerButton.disabled = true;
+    try {
+        const profile = createProfile({ name: `Computer ${profiles.length + 1}` });
+        const previousProfiles = profiles;
+        profiles = [...profiles, profile];
+        try {
+            await saveProfiles();
+        } catch (error) {
+            profiles = previousProfiles;
+            throw error;
+        }
+        openSettingsProfileId = profile.id;
+        renderProfiles();
+        refreshAll();
+        findCard(profile.id)?.querySelector('[data-field="name"]').focus();
+    } catch (error) {
+        showConfigurationMessage(error.message, true);
+    } finally {
+        addComputerButton.disabled = false;
+    }
 });
 
 document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshAll({ quiet: true });
 });
 
-(async function initialize() {
+function showConfigurationMessage(message, isError = false) {
+    const notice = document.getElementById("configuration-message");
+    notice.textContent = message;
+    notice.classList.toggle("is-error", isError);
+}
+
+vaultForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    const submit = document.getElementById("vault-submit");
+    submit.disabled = true;
+    vaultMessage.textContent = "Opening encrypted settings...";
+    vaultMessage.classList.remove("is-error");
     try {
-        database = await openDatabase();
-        profiles = await loadProfiles();
+        if (creatingVault && vaultPassword.value !== vaultConfirm.value) throw new Error("Settings passphrases do not match.");
+        profiles = await loadProfiles(vaultPassword.value);
+        vaultPassword.value = "";
+        vaultConfirm.value = "";
+        document.getElementById("vault-panel").hidden = true;
+        dashboard.hidden = false;
         renderProfiles();
         refreshAll();
         schedulePolling();
+        addComputerButton.focus();
+    } catch (error) {
+        vaultMessage.textContent = error.message || "Encrypted settings could not be opened.";
+        vaultMessage.classList.add("is-error");
+    } finally {
+        vaultPassword.value = "";
+        vaultConfirm.value = "";
+        submit.disabled = false;
+    }
+});
+
+function configurationForExport(profileId = null) {
+    if (profileId === null) return EncryptedConfig.validateProfiles(profiles);
+    const profile = findProfile(profileId);
+    if (!profile) throw new Error("This computer is no longer available for export.");
+    return EncryptedConfig.validateProfiles([profile]);
+}
+
+function openTransfer(mode, profileId = null, trigger) {
+    transferMode = mode;
+    transferProfileId = profileId;
+    transferTrigger = trigger;
+    const exporting = mode === "export";
+    transferForm.reset();
+    transferMessage.textContent = "";
+    transferMessage.classList.remove("is-error");
+    document.getElementById("transfer-title").textContent = exporting
+        ? (profileId === null ? "Export all computers" : `Export ${findProfile(profileId).name}`)
+        : "Import computer";
+    document.getElementById("transfer-description").textContent = exporting
+        ? `${profileId === null ? "All computers" : "Only this computer"} will be exported, including saved addresses and control passwords, fully encrypted. Save any settings changes first. Choose a file passphrase (at least 12 characters) and send it separately from the file.`
+        : "Select an encrypted ESP Wake file for one computer or an all-computers backup. New computers are added by default; existing computers stay unchanged. Enter the file passphrase to import.";
+    document.getElementById("transfer-file-label").hidden = exporting;
+    document.getElementById("transfer-mode-label").hidden = exporting;
+    document.getElementById("transfer-confirm-label").hidden = !exporting;
+    transferFile.required = !exporting;
+    transferConfirm.required = exporting;
+    transferPassword.autocomplete = exporting ? "new-password" : "current-password";
+    document.getElementById("transfer-submit").textContent = exporting ? "Export file" : "Import file";
+    transferDialog.showModal();
+    (exporting ? transferPassword : transferFile).focus();
+}
+
+document.getElementById("export-all").addEventListener("click", event => openTransfer("export", null, event.currentTarget));
+document.getElementById("import-config").addEventListener("click", event => openTransfer("import", null, event.currentTarget));
+document.getElementById("transfer-cancel").addEventListener("click", () => transferDialog.close());
+transferDialog.addEventListener("close", () => {
+    transferForm.reset();
+    if (transferTrigger?.isConnected) transferTrigger.focus();
+    else addComputerButton.focus();
+});
+
+transferForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    const submit = document.getElementById("transfer-submit");
+    submit.disabled = true;
+    document.getElementById("transfer-cancel").disabled = true;
+    transferForm.setAttribute("aria-busy", "true");
+    transferMessage.textContent = "Processing encrypted configuration...";
+    transferMessage.classList.remove("is-error");
+    try {
+        if (transferMode === "export") {
+            if (transferPassword.value !== transferConfirm.value) throw new Error("File passphrases do not match.");
+            const exportedProfiles = configurationForExport(transferProfileId);
+            const { envelope } = await EncryptedConfig.create(exportedProfiles, transferPassword.value);
+            const blob = new Blob([JSON.stringify(envelope)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = transferProfileId === null ? "espwake-all.espwake" : "espwake-computer.espwake";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+            showConfigurationMessage(`${exportedProfiles.length} computer(s) exported in an encrypted file. Send the passphrase separately.`);
+        } else {
+            const file = transferFile.files[0];
+            if (!file || file.size > EncryptedConfig.MAX_FILE_BYTES) throw new Error("Select a configuration file no larger than 1 MB.");
+            const { profiles: imported } = await EncryptedConfig.open(EncryptedConfig.parseFile(await file.text()), transferPassword.value);
+            const replace = document.getElementById("transfer-mode").value === "replace";
+            if (replace && !window.confirm("Replace all saved computers with this file? Export a backup first if needed.")) return;
+            const updated = replace ? [] : [...profiles];
+            let added = 0;
+            for (const profile of imported) {
+                const duplicate = updated.some(existing =>
+                    existing.id === profile.id ||
+                    (profile.deviceHostname && existing.deviceHostname === profile.deviceHostname) ||
+                    (profile.baseUrl && existing.baseUrl === profile.baseUrl));
+                if (!duplicate) {
+                    updated.push(createProfile(profile));
+                    added++;
+                }
+            }
+            EncryptedConfig.validateProfiles(updated);
+            const previousProfiles = profiles;
+            profiles = updated;
+            try {
+                await saveProfiles();
+            } catch (error) {
+                profiles = previousProfiles;
+                throw error;
+            }
+            openSettingsProfileId = null;
+            renderProfiles();
+            refreshAll();
+            showConfigurationMessage(`${added} computer(s) imported; ${imported.length - added} duplicate(s) skipped.`);
+        }
+        transferDialog.close();
+    } catch (error) {
+        transferMessage.textContent = error.message || "Configuration transfer failed.";
+        transferMessage.classList.add("is-error");
+    } finally {
+        transferPassword.value = "";
+        transferConfirm.value = "";
+        submit.disabled = false;
+        document.getElementById("transfer-cancel").disabled = false;
+        transferForm.removeAttribute("aria-busy");
+    }
+});
+
+transferDialog.addEventListener("cancel", event => {
+    if (document.getElementById("transfer-submit").disabled) event.preventDefault();
+});
+
+transferDialog.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+        event.preventDefault();
+        if (!document.getElementById("transfer-submit").disabled) transferDialog.close();
+    }
+});
+
+document.getElementById("lock-settings").addEventListener("click", async () => {
+    dashboard.inert = true;
+    clearInterval(pollTimer);
+    try {
+        await Promise.all([...deviceOperations.values()]);
+        await saveQueue;
+        profiles = [];
+        vaultKey = undefined;
+        vaultSalt = undefined;
+        computersList.replaceChildren();
+        window.location.reload();
+    } catch (error) {
+        dashboard.inert = false;
+        showConfigurationMessage("Settings could not be locked. Reload this page to lock it.", true);
+    }
+});
+
+(async function initialize() {
+    try {
+        EncryptedConfig.requireCrypto();
+        database = await openDatabase();
+        creatingVault = await readSetting("encryptedProfiles") === null;
+        document.getElementById("vault-description").textContent = creatingVault
+            ? "Create a settings passphrase of at least 12 characters to encrypt this browser's saved computers and control passwords. Existing settings will be migrated. This passphrase is not saved and cannot be recovered."
+            : "Enter your settings passphrase to unlock this browser's computers. It is separate from the ESP32 control password and is not saved.";
+        document.getElementById("vault-submit").textContent = creatingVault ? "Encrypt settings" : "Unlock settings";
+        document.getElementById("vault-confirm-label").hidden = !creatingVault;
+        vaultConfirm.required = creatingVault;
+        vaultPassword.autocomplete = creatingVault ? "new-password" : "current-password";
+        vaultForm.hidden = false;
     } catch (error) {
         console.error("Initialization failed:", error);
-        emptyState.hidden = false;
-        emptyState.querySelector("p").textContent = "Saved settings could not be loaded in this browser.";
+        vaultMessage.textContent = error.message || "Saved settings could not be loaded in this browser.";
+        vaultMessage.classList.add("is-error");
     }
 })();
 

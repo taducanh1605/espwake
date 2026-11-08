@@ -32,6 +32,61 @@ static-web-project
 - Modify `styles.css` to change the appearance of the application.
 - Update `script.js` to add or change functionality.
 
+## Encrypted settings and moving computers between devices
+
+Open the dashboard over **HTTPS** (or localhost) in a browser with Web Crypto
+and IndexedDB support. On first use, create a **settings passphrase** of at
+least 12 characters and confirm it. This is separate from each ESP32's control
+password. Existing plaintext profiles, including older single-device settings,
+are migrated only after the encrypted record commits successfully; the old
+`profiles`, `baseUrl` and `password` records are deleted in that same transaction.
+Until migration succeeds, legacy records remain unchanged for retry.
+
+The dashboard now starts locked. Enter the settings passphrase on each reload
+to enable computers, polling and control actions. **Lock settings** reloads the
+dashboard and discards the in-memory key. No settings passphrase or decryption
+key is persisted by this app. Losing this passphrase means losing access to
+this browser's saved configuration; keep a separately encrypted export as a
+backup. Your browser/password manager may offer to remember entered passphrases;
+that is outside this application's storage.
+
+To use the same computers on another phone, tablet or computer:
+
+1. Unlock the source dashboard, open the desired computer's settings and choose
+   **Export this computer**. It exports only that computer's saved configuration;
+   save any edits first. For a complete backup, use **Export all** at the bottom.
+2. Choose and confirm a **file passphrase** (at least 12 characters). This can
+   be different from the local settings passphrase.
+3. Send `espwake-computer.espwake` (or `espwake-all.espwake` for a full backup)
+   to the other device. Send its passphrase through a separate channel;
+   do not send both together.
+4. On the destination dashboard, create/unlock its local encrypted settings,
+   choose **Import computer** next to **Add computer**, select the file and enter
+   its file passphrase. The same import accepts single-computer exports and full backups.
+5. Default import adds new computers while preserving existing settings, skipping
+   duplicates by profile ID, bound ESP32 hostname or configured address.
+   **Replace all computers** requires confirmation and replaces the list instead.
+
+All exported computer names, addresses, identities, endpoint inventories and
+control passwords are inside authenticated **AES-256-GCM** ciphertext.
+Keys are derived using **PBKDF2-SHA-256 with 600,000 iterations**, a random
+16-byte salt and a fresh 12-byte IV per encryption. The same format protects
+IndexedDB records. Only format/version, cryptographic parameters, salt, IV and
+ciphertext remain readable. Runtime status, remote tickets and viewer IDs are
+not exported. Imports accept only this encrypted format, at most 1 MB and 100
+computers, and reject invalid URLs/identities, incorrect passphrases and damaged
+files without replacing saved settings. Imports are re-encrypted using the
+destination browser's local key; they are not automatic synchronization.
+
+Encryption protects stored/exported data, not a compromised dashboard or an
+unlocked session: JavaScript must decrypt control passwords in memory to send
+commands. Use trusted devices and **HTTPS ESP32/proxy addresses**. Storage
+encryption does not encrypt HTTP network traffic or remove the risks of legacy
+firmware's unverified configured endpoint. Deleted legacy records may remain in
+browser backups or underlying storage; this is not a forensic secure erase.
+
+Encryption/storage regression tests: `node --test tests\encrypted-config.test.cjs`.
+
 ## Remote desktop launch
 
 Each computer has a monitor-icon action beside its settings controls. It becomes
@@ -99,9 +154,9 @@ After deploying changes to GitHub Pages, reload the dashboard to receive the upd
 
 After the configured base URL first answers `/api/identity`, the dashboard stores the ESP32's stable `device_hostname` (derived from the station MAC) as the profile identity. It stores discovered HTTPS IP/hostname URLs separately. Status and control requests revalidate the selected endpoint first, then try the configured URL and stored alternatives sequentially if needed. Discovery stops at the first matching hostname; it does not wait for all unreachable addresses or create concurrent TLS handshakes. The working bootstrap URL is reused immediately. The endpoint inventory is optional and refreshed at most every five minutes during polling; its failure does not make a verified connection offline.
 
-Only a matching identity may receive credentials at a discovered address. Operations for the same configured URL are serialized. A failed status read may retry once at another verified address, but a power command is never automatically resent: a lost response does not prove the relay command failed. The dashboard never derives identity from an IP. Use **Forget ESP32 identity** only when intentionally replacing/rebinding the physical board.
+Only a matching identity may receive credentials at a discovered address. Operations for the same configured URL are serialized. A status refresh tries up to three times on a timeout or transport failure; failed endpoints move behind known alternatives, and each alternative must pass identity verification before receiving credentials. The existing card state stays visible while retries run; only three transport failures mark it unreachable. Authentication, identity mismatch, HTTP and invalid-response errors are surfaced directly, without retries. A power command is never automatically resent: a lost response does not prove the relay command failed. The dashboard never derives identity from an IP. Use **Forget ESP32 identity** only when intentionally replacing/rebinding the physical board.
 
-Identity, status and optional endpoint inventory requests have five-second per-request deadlines, including response body reads. These are failure limits, not expected latency. Power requests retain the twelve-second deadline because older firmware waits for the seven-second relay hold before replying to forced shutdown; shortening it would falsely report failure after a command has already acted.
+Identity, status and optional endpoint inventory requests have 1,500 ms deadlines, including response body reads. Each retried status attempt shares one 1,500 ms network budget across identity discovery, status and optional inventory: three timed-out attempts take approximately 4.5 seconds, not three long discovery rounds. Optional inventory runs only after a successful status and cannot turn that success into an offline result if it times out. These are failure limits, not expected latency; browser scheduling and queued operations can add time. Firmware may spend about 810 ms on three unanswered pings or 1,060 ms including IPv4 fallback, before TLS/network overhead, so 700 ms would cause false failures. Power requests retain the twelve-second deadline because older firmware waits for the seven-second relay hold before replying to forced shutdown; shortening it would falsely report failure after a command has already acted.
 
 Legacy firmware keeps using only the manually configured URL, including proxy prefixes and the existing GET/POST password contract. Old firmware may return a 404 without CORS headers, which browsers expose as a fetch error rather than a visible 404. An unbound profile can still attempt status at its explicitly configured URL; connection/authentication failures remain visible. This compatibility path is never used for an already-bound profile or discovered addresses. Identity support is checked again after five minutes or on manual refresh, so upgrading an old board enables discovery without recreating the profile. Certificate errors and HTTPS-to-HTTP mixed-content restrictions still require browser/user action.
 
