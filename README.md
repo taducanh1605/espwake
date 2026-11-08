@@ -32,6 +32,55 @@ static-web-project
 - Modify `styles.css` to change the appearance of the application.
 - Update `script.js` to add or change functionality.
 
+## Remote desktop launch
+
+Each computer has a monitor-icon action beside its settings controls. It becomes
+available when the PC is online, **RemotePC streaming** is enabled in the ESP32
+configuration, the paired Windows helper reports Njk Host, and the ESP32 has a
+control password. The device setting is a separate persisted select and defaults
+to disabled. An offline PC or disabled RemotePC has a disabled monitor button
+with a dark icon and red background; its tooltip explains why. Save that same
+password in this computer's ESP Wake profile.
+The action requests `POST /api/remote` from the identity-verified ESP32, then opens
+`/remotepc/` and connects automatically. Approve the host certificate if required.
+Before leaving ESPWake, it reserves access with the Host's
+`POST /api/connect-prepare`. This consumes the ESP ticket and returns a different
+single-use ticket valid for ten minutes, without exposing a persistent token;
+stale tickets are discarded while the dashboard can still request fresh access.
+Normal launches do not depend on a suspended ESPWake page to renew access.
+The initial launch window shows progress instead of remaining blank while the
+Windows helper refreshes the pool. Update the Host gateway before this dashboard;
+certificate failures provide a certificate-check link without leaving ESPWake.
+Touch/mobile and installed ESPWake launches navigate the existing window to the
+canonical RemotePC URL rather than opening a temporary blank browser tab.
+Whether a separately installed RemotePC app captures that link is controlled by
+the phone's browser/OS. The RemotePC manifest requests reuse of an existing app.
+RemotePC selects fullscreen automatically for this launch. A browser requiring
+a fresh user gesture can defer fullscreen until the first video tap without
+blocking the stream or asking for a token/Connect click. Versioned script assets
+refresh the connection shell; host credentials remain in the fragment only as
+an ephemeral ticket. A persistent, non-secret per-profile viewer ID allows Host
+to replace an old connection from the same browser/profile without disconnecting
+other devices or weakening the multi-client Quit guard.
+
+The host issues four single-use connection tickets valid for two minutes. The
+Windows helper forwards them through USB or authenticated bonded Bluetooth;
+the ESP32 keeps them only in RAM and releases one per authenticated request.
+Tickets travel in the RemotePC URL fragment, not its query, and are removed from
+browser history before redemption. The long-lived host token never enters the
+ESP32 or ESP Wake profile. An exhausted/expired pool requires the next helper
+report; errors remain visible. Both PWAs use the same forest/lime design tokens,
+Manrope/Space Grotesk typography and compact controls.
+
+Legacy, unprepared links can renew an expired/reused ticket through an
+origin-scoped BroadcastChannel with a random per-launch nonce. The
+exact-origin/source postMessage broker is tried alongside BroadcastChannel.
+RemotePC retries requests and displays elapsed progress; an unanswered attempt
+ends with an explicit return-to-ESPWake link, not an indefinite loading status.
+Browser/OS suspension can defer timeout callbacks; another browser/storage
+partition cannot share this channel. New prepared launches do not require the
+dashboard or broker to remain active.
+
 ## Configuration Login
 
 In a normal browser tab, the configuration button opens a fresh window and posts the saved control password from that window to the ESP32 login endpoint. The form stays attached until navigation.
