@@ -794,6 +794,24 @@ async function openRemoteDesktop(profile, card, button) {
                 const host = new URL(data.host);
                 if (host.protocol !== "https:" || host.username || host.password || host.pathname !== "/" || host.search || host.hash ||
                     !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
+                // Validate before switching away from the dashboard: an installed PWA may suspend its opener.
+                let checked;
+                try {
+                    checked = await fetch(`${host.origin}/api/connect-check`, {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ ticket: data.ticket }), cache: "no-store", signal: AbortSignal.timeout(5000),
+                    });
+                } catch (error) {
+                    if (!(error instanceof TypeError)) throw new Error(`Njk Host ticket check failed: ${error.message}. Check the host network and gateway.`);
+                    console.warn("Host certificate/network check needs RemotePC recovery:", error.message);
+                }
+                if (checked?.status === 401) {
+                    const error = new Error("Host rejected stale ESP32 access; waiting for the Windows helper to refresh it.");
+                    error.status = 503;
+                    throw error;
+                }
+                if (checked && !checked.ok && checked.status !== 404) throw new Error(`Njk Host ticket check failed (HTTP ${checked.status}). Check the host gateway.`);
+                if (checked?.status === 404) console.warn("Older Njk Host cannot preflight tickets; RemotePC will validate access.");
                 cardPart(card, "message").textContent = "";
                 return { host: host.origin, ticket: data.ticket };
             } catch (error) {

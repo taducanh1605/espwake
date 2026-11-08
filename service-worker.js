@@ -1,9 +1,9 @@
-const CACHE_NAME = "esp-wake-shell-v21-remotepc";
+const CACHE_NAME = "esp-wake-shell-v22-remotepc";
 const APP_SHELL = [
     "./",
     "./index.html",
     "./css/styles.css?v=20261108-remotepc4",
-    "./js/script.js?v=20261108-remotepc12",
+    "./js/script.js?v=20261108-remotepc13",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",
@@ -25,10 +25,11 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
     const requestUrl = new URL(event.request.url);
-    if (event.request.method !== "GET" || requestUrl.origin !== self.location.origin) return;
+    if (event.request.method !== "GET" || requestUrl.origin !== self.location.origin ||
+        !requestUrl.pathname.startsWith(new URL(self.registration.scope).pathname)) return;
 
     event.respondWith(
-        fetch(event.request)
+        fetch(event.request, { cache: "no-cache" })
             .then((response) => {
                 if (response.ok) {
                     const copy = response.clone();
