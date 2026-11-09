@@ -878,6 +878,13 @@ function openCertificateCheck(profile) {
     window.open(endpoint({ baseUrl }, "certificate-check"), "_blank", "noopener,noreferrer");
 }
 
+function remoteConnection(data) {
+    const host = new URL(data.browser_host ?? data.host);
+    if (host.protocol !== "https:" || host.username || host.password || host.pathname !== "/" || host.search || host.hash ||
+        !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
+    return { host: host.origin, ticket: data.ticket };
+}
+
 async function openRemoteDesktop(profile, card, button) {
     if (remoteLaunches.has(profile.id)) return;
     if (!profile.password) throw new Error("Configure an ESP32 control password before launching remote desktop.");
@@ -927,12 +934,9 @@ async function openRemoteDesktop(profile, card, button) {
         for (;;) {
             try {
                 const response = await requestDevice(profile, "api/remote", { forceProbe: true });
-                const data = await response.json();
-                const host = new URL(data.host);
-                if (host.protocol !== "https:" || host.username || host.password || host.pathname !== "/" || host.search || host.hash ||
-                    !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
+                const data = remoteConnection(await response.json());
                 cardPart(card, "message").textContent = "";
-                return { host: host.origin, ticket: data.ticket };
+                return data;
             } catch (error) {
                 if (error.status !== 503 || Date.now() >= deadline || disposed) throw error;
                 cardPart(card, "message").textContent = "Waiting for the Windows helper to refresh remote access…";
@@ -1360,7 +1364,7 @@ async function startRemoteBroker(parameters) {
             }
             profiles = remembered;
             const response = await requestDevice(profile, "api/remote", { forceProbe: true });
-            const data = await response.json();
+            const data = remoteConnection(await response.json());
             if (data.host !== host || !/^[a-f0-9]{32}$/.test(data.ticket || "")) {
                 throw new Error("ESPWake returned access for a different host or an invalid ticket.");
             }

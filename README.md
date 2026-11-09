@@ -107,6 +107,18 @@ unavailable/red indicator. Completion or failure restores the monitor icon.
 Dark/red remains reserved for an offline PC or disabled/unavailable RemotePC.
 The action requests `POST /api/remote` from the identity-verified ESP32, then opens
 `/remotepc/` and connects automatically. Approve the host certificate if required.
+Firmware 2026.11.09.1 adds `browser_host`: when computer DuckDNS is configured
+and enabled, RemotePC uses that **PC hostname**, preserving the gateway port,
+instead of the literal IPv4/IPv6 address reported by the Windows helper.
+The helper/ESP32 network-detection IP remains unchanged. This preference also
+applies when renewing tickets or restoring saved access. No hostname is guessed
+from the ESP32's own hostname. Without configured computer DNS, or with older
+firmware that does not supply `browser_host`, the original `host` remains the
+compatibility fallback. Invalid supplied browser origins fail visibly; DNS/TLS
+errors do not silently switch back to a potentially unreachable IP.
+Update the ESP32 using **Get Latest Firmware -> Install Firmware** to enable
+hostname advertisement, and enable its registered **Computer DuckDNS hostname**.
+The client must be able to resolve that hostname and trust its HTTPS certificate.
 Before leaving ESPWake, it reserves access with the Host's
 `POST /api/connect-prepare`. This consumes the ESP ticket and returns a different
 single-use ticket valid for ten minutes, without exposing a persistent token;
