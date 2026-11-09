@@ -71,6 +71,36 @@ function writeVault(value) {
     });
 }
 
+function writeDeviceUnlock(key) {
+    return new Promise((resolve, reject) => {
+        const transaction = database.transaction(STORE_NAME, "readwrite");
+        transaction.objectStore(STORE_NAME).put({ id: "deviceUnlockKey", value: key });
+        transaction.oncomplete = () => resolve();
+        transaction.onabort = () => reject(transaction.error || new Error("Browser unlock could not be saved."));
+        transaction.onerror = () => reject(transaction.error);
+    });
+}
+
+function forgetDeviceUnlock() {
+    return new Promise((resolve, reject) => {
+        const transaction = database.transaction(STORE_NAME, "readwrite");
+        transaction.objectStore(STORE_NAME).delete("deviceUnlockKey");
+        transaction.oncomplete = () => resolve();
+        transaction.onabort = () => reject(transaction.error || new Error("Browser unlock could not be cleared."));
+        transaction.onerror = () => reject(transaction.error);
+    });
+}
+
+function rememberRemoteHost(profileId, host) {
+    return new Promise((resolve, reject) => {
+        const transaction = database.transaction(STORE_NAME, "readwrite");
+        transaction.objectStore(STORE_NAME).put({ id: `remoteHost-${profileId}`, value: host });
+        transaction.oncomplete = resolve;
+        transaction.onabort = () => reject(transaction.error || new Error("Remote host binding could not be saved."));
+        transaction.onerror = () => reject(transaction.error);
+    });
+}
+
 function createProfile(overrides = {}) {
     return {
         id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
@@ -89,6 +119,7 @@ async function loadProfiles(password) {
     const encrypted = await readSetting("encryptedProfiles");
     if (encrypted !== null) {
         const unlocked = await EncryptedConfig.open(encrypted, password);
+        await writeDeviceUnlock(unlocked.key);
         vaultKey = unlocked.key;
         vaultSalt = unlocked.salt;
         return unlocked.profiles;
@@ -118,9 +149,25 @@ async function loadProfiles(password) {
     }
     const created = await EncryptedConfig.create(migrated, password);
     await writeVault(created.envelope);
+    await writeDeviceUnlock(created.key);
     vaultKey = created.key;
     vaultSalt = created.salt;
     return migrated;
+}
+
+async function loadRememberedProfiles() {
+    const encrypted = await readSetting("encryptedProfiles");
+    const key = await readSetting("deviceUnlockKey");
+    if (encrypted === null || key === null) return null;
+    try {
+        const unlocked = await EncryptedConfig.openWithKey(encrypted, key);
+        vaultKey = unlocked.key;
+        vaultSalt = unlocked.salt;
+        return unlocked.profiles;
+    } catch (error) {
+        await forgetDeviceUnlock();
+        return null;
+    }
 }
 
 function persistProfiles(value) {
@@ -843,7 +890,7 @@ async function openRemoteDesktop(profile, card, button) {
         remoteWindow.document.write(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Opening RemotePC</title><body style="margin:0;padding:24px;background:#edf1ec;color:#17211d;font:16px system-ui">
         <main style="max-width:520px;margin:auto"><h1>Opening RemotePC</h1>
-        <p id="handoff-status" role="status" aria-live="polite">Checking the computer and remote access...</p>
+        <p id="handoff-status" role="status" aria-live="polite">Getting a one-time connection ticket...</p>
         <p>Keep ESPWake open until the stream connects.</p></main></body></html>`);
         remoteWindow.document.close();
     }
@@ -868,8 +915,8 @@ async function openRemoteDesktop(profile, card, button) {
     button.replaceChildren(spinner);
     button.classList.add("is-connecting");
     button.setAttribute("aria-busy", "true");
-    button.setAttribute("aria-label", "Preparing RemotePC access");
-    button.title = "Preparing RemotePC access...";
+    button.setAttribute("aria-label", "Opening RemotePC");
+    button.title = "Opening RemotePC...";
     button.disabled = true;
     const origin = "https://taducanh1605.github.io";
     const nonce = crypto.randomUUID();
@@ -884,28 +931,8 @@ async function openRemoteDesktop(profile, card, button) {
                 const host = new URL(data.host);
                 if (host.protocol !== "https:" || host.username || host.password || host.pathname !== "/" || host.search || host.hash ||
                     !/^[a-f0-9]{32}$/.test(data.ticket || "")) throw new Error("ESP32 returned an invalid Njk Host connection.");
-                // Reserve access before leaving: an installed PWA may suspend its opener.
-                let checked;
-                try {
-                    checked = await fetch(`${host.origin}/api/connect-prepare`, {
-                        method: "POST", headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ ticket: data.ticket }), cache: "no-store", signal: AbortSignal.timeout(5000),
-                    });
-                } catch (error) {
-                    const failure = new Error(`Njk Host access preparation failed: ${error.message}. Check the host network, approve its certificate, then retry RemotePC.`);
-                    failure.trustURL = `${host.origin}/trust?origin=${encodeURIComponent(origin)}&nonce=${encodeURIComponent(nonce)}`;
-                    throw failure;
-                }
-                if (checked?.status === 401) {
-                    const error = new Error("Host rejected stale ESP32 access; waiting for the Windows helper to refresh it.");
-                    error.status = 503;
-                    throw error;
-                }
-                if (!checked.ok) throw new Error(`Njk Host access preparation failed (HTTP ${checked.status}). Update Njk Host and its browser gateway.`);
-                const prepared = await checked.json();
-                if (!/^[a-f0-9]{32}$/.test(prepared.ticket || "") || prepared.expiresIn < 120) throw new Error("Njk Host returned invalid prepared access.");
                 cardPart(card, "message").textContent = "";
-                return { host: host.origin, ticket: prepared.ticket };
+                return { host: host.origin, ticket: data.ticket };
             } catch (error) {
                 if (error.status !== 503 || Date.now() >= deadline || disposed) throw error;
                 cardPart(card, "message").textContent = "Waiting for the Windows helper to refresh remote access…";
@@ -937,7 +964,8 @@ async function openRemoteDesktop(profile, card, button) {
     cleanup = () => { disposed = true; clearTimeout(closedTimer); window.removeEventListener("message", receive); broker?.close(); };
     try {
         const data = await freshTicket();
-        const fragment = new URLSearchParams({ ...data, fullscreen: "1", return: "espwake", nonce, clientId: viewerId, prepared: "1", sameWindow: sameWindow ? "1" : "0" });
+        await rememberRemoteHost(profile.id, data.host);
+        const fragment = new URLSearchParams({ ...data, profileId: profile.id, fullscreen: "1", return: "espwake", nonce, clientId: viewerId, sameWindow: sameWindow ? "1" : "0" });
         remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/#${fragment}`;
     } catch (error) {
         cleanup();
@@ -1294,6 +1322,7 @@ document.getElementById("lock-settings").addEventListener("click", async () => {
     try {
         await Promise.all([...deviceOperations.values()]);
         await saveQueue;
+        await forgetDeviceUnlock();
         profiles = [];
         vaultKey = undefined;
         vaultSalt = undefined;
@@ -1305,18 +1334,71 @@ document.getElementById("lock-settings").addEventListener("click", async () => {
     }
 });
 
+async function startRemoteBroker(parameters) {
+    const origin = "https://taducanh1605.github.io";
+    const nonce = parameters.get("nonce");
+    const profileId = parameters.get("profileId");
+    const host = parameters.get("host");
+    if (window.parent === window || window.location.origin !== origin ||
+        !/^[a-zA-Z0-9_-]{1,128}$/.test(profileId || "") || !nonce || nonce.length > 128) return;
+    try {
+        const parentUrl = new URL(window.parent.location.href);
+        if (parentUrl.origin !== origin || !["/remotepc/", "/remotepc/index.html"].includes(parentUrl.pathname)) return;
+    } catch { return; }
+    history.replaceState(null, "", window.location.pathname);
+    let busy = false;
+    window.addEventListener("message", async event => {
+        if (event.source !== window.parent || event.origin !== origin || event.data?.nonce !== nonce ||
+            event.data.type !== "njk-refresh-ticket" || busy) return;
+        busy = true;
+        const reply = data => window.parent.postMessage({ type: "njk-fresh-ticket", nonce, ...data }, origin);
+        try {
+            const remembered = await loadRememberedProfiles();
+            const profile = remembered?.find(item => item.id === profileId);
+            if (!profile?.password || await readSetting(`remoteHost-${profileId}`) !== host) {
+                throw new Error("Saved ESPWake access is locked, missing, or no longer matches this host. Unlock the selected computer in ESPWake.");
+            }
+            profiles = remembered;
+            const response = await requestDevice(profile, "api/remote", { forceProbe: true });
+            const data = await response.json();
+            if (data.host !== host || !/^[a-f0-9]{32}$/.test(data.ticket || "")) {
+                throw new Error("ESPWake returned access for a different host or an invalid ticket.");
+            }
+            reply({ host, ticket: data.ticket });
+        } catch (error) {
+            reply({ error: error.status === 503 ? "The Windows helper has no fresh remote ticket. Check the helper and retry." : error.message });
+        } finally { busy = false; }
+    });
+    window.parent.postMessage({ type: "njk-broker-ready", nonce }, origin);
+}
+
 (async function initialize() {
     try {
         EncryptedConfig.requireCrypto();
         database = await openDatabase();
+        const brokerParameters = new URLSearchParams(window.location.hash.slice(1));
+        if (brokerParameters.get("broker") === "1") {
+            await startRemoteBroker(brokerParameters);
+            return;
+        }
         creatingVault = await readSetting("encryptedProfiles") === null;
         document.getElementById("vault-description").textContent = creatingVault
-            ? "Create a settings passphrase of at least 6 characters to encrypt this browser's saved computers and control passwords. Existing settings will be migrated. This passphrase is not saved and cannot be recovered."
-            : "Enter your settings passphrase to unlock this browser's computers. It is separate from the ESP32 control password and is not saved.";
+            ? "Create a settings passphrase of at least 6 characters to encrypt this browser's saved computers and control passwords. Existing settings will be migrated. This browser remembers the unlock until you choose Lock settings; the passphrase is never saved and cannot be recovered."
+            : "Enter your settings passphrase to unlock this browser's computers. This browser will remember the unlock until you choose Lock settings. The passphrase is never saved; it is separate from your ESP32 control password.";
         document.getElementById("vault-submit").textContent = creatingVault ? "Encrypt settings" : "Unlock settings";
         document.getElementById("vault-confirm-label").hidden = !creatingVault;
         vaultConfirm.required = creatingVault;
         vaultPassword.autocomplete = creatingVault ? "new-password" : "current-password";
+        const rememberedProfiles = creatingVault ? null : await loadRememberedProfiles();
+        if (rememberedProfiles) {
+            profiles = rememberedProfiles;
+            document.getElementById("vault-panel").hidden = true;
+            dashboard.hidden = false;
+            renderProfiles();
+            refreshAll();
+            schedulePolling();
+            return;
+        }
         vaultForm.hidden = false;
     } catch (error) {
         console.error("Initialization failed:", error);

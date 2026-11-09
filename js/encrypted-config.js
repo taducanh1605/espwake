@@ -127,11 +127,26 @@ const EncryptedConfig = (() => {
             envelope.cipher !== "AES-256-GCM" || envelope.kdf !== "PBKDF2-SHA-256" || envelope.iterations !== ITERATIONS) {
             throw new Error("Unsupported encrypted configuration format.");
         }
+        const salt = decode(envelope?.salt, 16);
+        const key = await deriveKey(password, salt);
+        return openWithKey(envelope, key, salt);
+    }
+
+    async function openWithKey(envelope, key, savedSalt) {
+        requireCrypto();
+        if (!envelope || envelope.format !== "espwake-encrypted-config" || envelope.version !== 1 ||
+            envelope.cipher !== "AES-256-GCM" || envelope.kdf !== "PBKDF2-SHA-256" || envelope.iterations !== ITERATIONS) {
+            throw new Error("Unsupported encrypted configuration format.");
+        }
         const salt = decode(envelope.salt, 16);
+        if (savedSalt && encode(savedSalt) !== envelope.salt) throw new Error("Saved unlock key does not match this configuration.");
+        if (!key || key.type !== "secret" || key.extractable || key.algorithm?.name !== "AES-GCM" ||
+            key.algorithm.length !== 256 || !key.usages?.includes("decrypt")) {
+            throw new Error("Saved unlock key is invalid.");
+        }
         const iv = decode(envelope.iv, 12);
         const ciphertext = decode(envelope.ciphertext);
         if (ciphertext.length < 16 || ciphertext.length > MAX_FILE_BYTES / 2 + 16) throw new Error("Invalid configuration size.");
-        const key = await deriveKey(password, salt);
         let plaintext;
         try {
             plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
@@ -149,5 +164,5 @@ const EncryptedConfig = (() => {
         return JSON.parse(contents);
     }
 
-    return { MAX_FILE_BYTES, validateProfiles, validatePassword, requireCrypto, create, seal, open, parseFile };
+    return { MAX_FILE_BYTES, validateProfiles, validatePassword, requireCrypto, create, seal, open, openWithKey, parseFile };
 })();
