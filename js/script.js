@@ -1187,7 +1187,7 @@ function openTransfer(mode, profileId = null, trigger) {
         ? (profileId === null ? "Export all computers" : `Export ${findProfile(profileId).name}`)
         : "Import computer";
     document.getElementById("transfer-description").textContent = exporting
-        ? `${profileId === null ? "All computers" : "Only this computer"} will be exported, including saved addresses and control passwords, fully encrypted. Save any settings changes first. Choose a file passphrase (at least 12 characters) and send it separately from the file.`
+        ? `${profileId === null ? "All computers" : "Only this computer"} will be exported, including saved addresses and control passwords, fully encrypted. Save any settings changes first. Choose a file passphrase (at least 6 characters) and send it separately from the file.`
         : "Select an encrypted ESP Wake file for one computer or an all-computers backup. New computers are added by default; existing computers stay unchanged. Enter the file passphrase to import.";
     document.getElementById("transfer-file-label").hidden = exporting;
     document.getElementById("transfer-mode-label").hidden = exporting;
@@ -1311,7 +1311,7 @@ document.getElementById("lock-settings").addEventListener("click", async () => {
         database = await openDatabase();
         creatingVault = await readSetting("encryptedProfiles") === null;
         document.getElementById("vault-description").textContent = creatingVault
-            ? "Create a settings passphrase of at least 12 characters to encrypt this browser's saved computers and control passwords. Existing settings will be migrated. This passphrase is not saved and cannot be recovered."
+            ? "Create a settings passphrase of at least 6 characters to encrypt this browser's saved computers and control passwords. Existing settings will be migrated. This passphrase is not saved and cannot be recovered."
             : "Enter your settings passphrase to unlock this browser's computers. It is separate from the ESP32 control password and is not saved.";
         document.getElementById("vault-submit").textContent = creatingVault ? "Encrypt settings" : "Unlock settings";
         document.getElementById("vault-confirm-label").hidden = !creatingVault;

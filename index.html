@@ -29,7 +29,7 @@
             <p id="vault-description">Loading encrypted storage...</p>
             <form id="vault-form" hidden>
                 <label>Settings passphrase
-                    <input id="vault-password" type="password" autocomplete="current-password" minlength="12" maxlength="1024" required aria-describedby="vault-description">
+                    <input id="vault-password" type="password" autocomplete="current-password" minlength="6" maxlength="1024" required aria-describedby="vault-description">
                 </label>
                 <label id="vault-confirm-label" hidden>Confirm settings passphrase
                     <input id="vault-confirm" type="password" autocomplete="new-password" maxlength="1024">
@@ -71,7 +71,7 @@
                 </select>
             </label>
             <label>File passphrase
-                <input id="transfer-password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+                <input id="transfer-password" type="password" autocomplete="new-password" minlength="6" maxlength="1024" required>
             </label>
             <label id="transfer-confirm-label">Confirm file passphrase
                 <input id="transfer-confirm" type="password" autocomplete="new-password" maxlength="1024">
@@ -160,7 +160,7 @@
         </article>
     </template>
     
-    <script src="js/encrypted-config.js?v=20261109-vault1"></script>
-    <script src="js/script.js?v=20261109-vault2"></script>
+    <script src="js/encrypted-config.js?v=20261109-vault3"></script>
+    <script src="js/script.js?v=20261109-vault3"></script>
 </body>
 </html>

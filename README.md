@@ -36,7 +36,7 @@ static-web-project
 
 Open the dashboard over **HTTPS** (or localhost) in a browser with Web Crypto
 and IndexedDB support. On first use, create a **settings passphrase** of at
-least 12 characters and confirm it. This is separate from each ESP32's control
+least 6 characters and confirm it. This is separate from each ESP32's control
 password. Existing plaintext profiles, including older single-device settings,
 are migrated only after the encrypted record commits successfully; the old
 `profiles`, `baseUrl` and `password` records are deleted in that same transaction.
@@ -55,7 +55,7 @@ To use the same computers on another phone, tablet or computer:
 1. Unlock the source dashboard, open the desired computer's settings and choose
    **Export this computer**. It exports only that computer's saved configuration;
    save any edits first. For a complete backup, use **Export all** at the bottom.
-2. Choose and confirm a **file passphrase** (at least 12 characters). This can
+2. Choose and confirm a **file passphrase** (at least 6 characters). This can
    be different from the local settings passphrase.
 3. Send `espwake-computer.espwake` (or `espwake-all.espwake` for a full backup)
    to the other device. Send its passphrase through a separate channel;
@@ -77,6 +77,11 @@ not exported. Imports accept only this encrypted format, at most 1 MB and 100
 computers, and reject invalid URLs/identities, incorrect passphrases and damaged
 files without replacing saved settings. Imports are re-encrypted using the
 destination browser's local key; they are not automatic synchronization.
+
+Encryption does not prevent offline password guessing against a weak passphrase:
+six characters are
+accepted for convenience, but longer, unpredictable passphrases are recommended.
+Existing longer passphrases and encrypted files remain compatible.
 
 Encryption protects stored/exported data, not a compromised dashboard or an
 unlocked session: JavaScript must decrypt control passwords in memory to send

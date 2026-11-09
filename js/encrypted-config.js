@@ -11,8 +11,8 @@ const EncryptedConfig = (() => {
     }
 
     function validatePassword(password) {
-        if (typeof password !== "string" || password.length < 12 || password.length > 1024) {
-            throw new Error("Use a passphrase between 12 and 1024 characters.");
+        if (typeof password !== "string" || password.length < 6 || password.length > 1024) {
+            throw new Error("Use a passphrase between 6 and 1024 characters.");
         }
     }
 
