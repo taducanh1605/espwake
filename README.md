@@ -146,6 +146,13 @@ missing PRF output leaves the encrypted vault/passphrase intact. This is
 browser-flow evidence, not a guarantee or physical enrollment test for a
 particular phone, OS, biometric or authenticator.
 
+Status requests have a 45-second total budget (including identity verification)
+and a 15-second identity-probe timeout, allowing a busy ESP32 to finish acquiring
+tickets. Polls and other operations on the same board are serialized; another
+7-second poll does not overlap an outstanding status request. A transport
+failure marks the last PC state as stale, disables power/RemotePC actions until
+a successful refresh, and does not infer that the PC powered off.
+
 ## Remote desktop launch
 
 Each computer has a monitor-icon action beside its settings controls. A request
@@ -153,14 +160,22 @@ can start when the PC is online, **RemotePC streaming** is enabled, a host is
 advertised, and the ESP32 control password is saved. If Host readiness or a
 current ticket is missing, the action can wait for Host refresh; the gateway
 rejects unavailable connection-ticket operations without consuming a ticket.
-The status pill says **Ticket available** only when the PC is online, the
-authenticated Host session is reachable (`remote.ready`), a current ticket is
-reported (`remote.available`), streaming is enabled, and credentials are
-configured. The Windows helper queries the authenticated Host session; updated
+The RemotePC button stays **red** until the PC is online, the authenticated Host
+session is reachable (`remote.ready`), a current ticket is reported
+(`remote.available`), streaming is enabled, credentials are configured, and the
+RemotePC PWA in this browser reports **progressing decoded video** for this
+Host with nonblank desktop content (black startup/keepalive frames are not
+confirmation). The Windows helper queries the authenticated Host session; updated
 helper and ESP32 firmware forward its readiness as `remote.ready` and optional
 reason as `remote.reason`. This reports Host gateway/native-bridge readiness,
 not capture certification. A ticket or a powered-on PC alone does not prove
-that the stream can start. The
+that the stream can start. Idle/unverified capture is conservatively red but
+still clickable when a connection can be attempted; this is not a PC power-off
+indicator. The browser-only stream evidence contains no credentials, is not
+stored, and expires after 15 seconds without fresh video progress. A stopped
+or failed stream clears it immediately. Browsers without BroadcastChannel
+remain red/unverified. This does not certify a future VDD mode change or repair
+VDD fallback. The
 `remote.available` status must be false for expired tickets; a cached ticket
 presence is not enough. Connection-ticket endpoints remain authoritative and
 may reject or wait even when the status reports availability. Older ESP32

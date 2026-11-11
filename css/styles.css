@@ -172,9 +172,9 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
 }
 .remote-button:disabled svg, .remote-button.is-unavailable svg { opacity: 0.6; }
 .remote-button.is-connecting {
-    background: var(--lime);
-    border-color: var(--forest);
-    color: var(--forest);
+    background: #e5a6a0;
+    border-color: var(--red);
+    color: #4c2724;
     opacity: 1;
     cursor: progress;
 }

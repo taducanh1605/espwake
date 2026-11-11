@@ -2,9 +2,9 @@ const DB_NAME = "ESPWakeDB";
 const STORE_NAME = "settings";
 const POLL_INTERVAL_MS = 7000;
 const REQUEST_TIMEOUT_MS = 12000;
-const STATUS_REQUEST_TIMEOUT_MS = 5500;
+const STATUS_REQUEST_TIMEOUT_MS = 45000;
 const STATUS_REQUEST_ATTEMPTS = 1;
-const IDENTITY_PROBE_TIMEOUT_MS = 5500;
+const IDENTITY_PROBE_TIMEOUT_MS = 15000;
 const ENDPOINT_REFRESH_MS = 300000;
 const DEFAULT_PASSWORD = "12345678";
 
@@ -627,6 +627,62 @@ async function resolveFastestEndpoint(profile, {
 
 const deviceOperations = new Map();
 const remoteLaunches = new Set();
+const remoteStates = new Map();
+const remoteStreams = new Map();
+const STREAM_STATUS_TTL_MS = 15000;
+const streamStatusChannel = typeof BroadcastChannel === "function" ? new BroadcastChannel("njk-stream-status") : null;
+
+function remoteHostOrigin(host) {
+    try {
+        const url = new URL(host.includes("://") ? host : `https://${host}`);
+        return url.protocol === "https:" && !url.username && !url.password ? url.origin : "";
+    } catch { return ""; }
+}
+
+function renderRemoteState(profileId) {
+    const card = findCard(profileId);
+    const state = remoteStates.get(profileId);
+    if (!card || !state) return;
+    const remote = card.querySelector('[data-action="remote"]');
+    const launching = remoteLaunches.has(profileId);
+    const lastFrameAt = remoteStreams.get(state.host);
+    const captureVerified = lastFrameAt !== undefined && Date.now() - lastFrameAt < STREAM_STATUS_TTL_MS;
+    const verified = state.canRequest && state.hostReady && state.ticketAvailable && captureVerified;
+    remote.disabled = !state.canRequest || launching;
+    remote.classList.toggle("is-unavailable", !verified || launching);
+    remote.title = launching ? "Preparing RemotePC access..."
+        : !state.remoteEnabled ? "RemotePC is disabled. Enable it in the ESP32 configuration."
+        : !state.pcOnline ? "PC is offline. Wake it before connecting."
+        : !state.canRequest ? "Waiting for Njk Host and an ESP32 control password"
+        : !state.readinessKnown ? "Host readiness is unknown (older helper/ESP32 firmware). You can try RemotePC, but capture is not verified."
+        : !state.hostReady ? state.reason || "Host readiness is not confirmed. You can try RemotePC."
+        : !state.ticketAvailable ? "Njk Host is reachable; waiting for a current connection ticket."
+        : !captureVerified ? "Ticket available, but desktop capture is not verified. You can try RemotePC; red does not mean the PC is powered off."
+        : "RemotePC video is currently verified on this browser. A new connection will still validate capture.";
+}
+
+if (streamStatusChannel) {
+    streamStatusChannel.onmessage = ({ data }) => {
+        if (data?.type !== "njk-stream-status" || typeof data.host !== "string" || typeof data.playing !== "boolean") return;
+        const host = remoteHostOrigin(data.host);
+        if (!host) return;
+        if (data.playing) remoteStreams.set(host, Date.now());
+        else remoteStreams.delete(host);
+        remoteStates.forEach((state, id) => {
+            if (state.host === host) renderRemoteState(id);
+        });
+    };
+    setInterval(() => {
+        remoteStreams.forEach((at, host) => {
+            if (Date.now() - at >= STREAM_STATUS_TTL_MS) {
+                remoteStreams.delete(host);
+                remoteStates.forEach((state, id) => {
+                    if (state.host === host) renderRemoteState(id);
+                });
+            }
+        });
+    }, 1000);
+}
 
 function withDeviceOperation(profile, operation) {
     const key = normalizeBaseUrl(profile.baseUrl);
@@ -896,7 +952,7 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
 
         const deviceState = device.stat.toLowerCase();
         renderPowerState(card, deviceState);
-        const remote = card.querySelector('[data-action="remote"]');
+        delete card.dataset.statusStale;
         const pcOnline = ["connected", "up"].includes(deviceState);
         const remoteEnabled = device.remote?.enabled === true;
         const readinessKnown = typeof device.remote?.readiness_known === "boolean"
@@ -907,17 +963,12 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
         const readinessReason = typeof device.remote?.reason === "string"
             ? device.remote.reason.slice(0, 200) : "";
         const canRequestRemote = pcOnline && remoteEnabled && !!device.remote?.host && !!profile.password;
-        const launching = remoteLaunches.has(profile.id);
-        remote.disabled = !canRequestRemote || launching;
-        remote.classList.toggle("is-unavailable", !canRequestRemote);
-        remote.title = launching ? "Preparing RemotePC access..."
-            : !remoteEnabled ? "RemotePC is disabled. Enable it in the ESP32 configuration."
-            : !pcOnline ? "PC is offline. Wake it before connecting."
-            : !device.remote?.host || !profile.password ? "Waiting for Njk Host and an ESP32 control password"
-            : !readinessKnown ? "Host readiness is unknown (older helper/ESP32 firmware). RemotePC launch may still work; Njk Host will validate the connection."
-            : !hostReady ? readinessReason || "Host readiness is not confirmed; the connection request will wait for Njk Host."
-            : !ticketAvailable ? "Njk Host is reachable; waiting for a current connection ticket."
-            : "Host reports a ticket; native capture readiness is checked during connection.";
+        remoteStates.set(profile.id, {
+            pcOnline, remoteEnabled, readinessKnown, hostReady, ticketAvailable,
+            canRequest: canRequestRemote, reason: readinessReason,
+            host: typeof device.remote?.host === "string" ? remoteHostOrigin(device.remote.host) : "",
+        });
+        renderRemoteState(profile.id);
         const connectionPill = cardPart(card, "connection-pill");
         setConnection(card, "available", "ESP Online");
         connectionPill.title = "The ESP32 responded to the latest status request.";
@@ -925,10 +976,23 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
         cardPart(card, "last-updated").textContent = `Updated at ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
     } catch (error) {
         console.error(`Status request failed for ${profile.name}:`, error);
-        renderPowerState(card, "unknown");
+        remoteStates.delete(profile.id);
+        const remote = card.querySelector('[data-action="remote"]');
+        remote.disabled = true;
+        remote.classList.add("is-unavailable");
+        remote.title = "ESP32 status is unavailable; RemotePC readiness cannot be verified.";
+        const lastState = card.dataset.deviceState;
+        if (lastState && lastState !== "unknown") {
+            card.dataset.statusStale = "true";
+            cardPart(card, "device-status").textContent = "Status unavailable; showing last known PC state";
+            cardPart(card, "signal-label").textContent = "Last known";
+            card.querySelector('[data-action="power"]').disabled = true;
+        } else {
+            renderPowerState(card, "unknown");
+        }
         const espOnline = espResponded || error.status !== undefined || error.code === "DEVICE_IDENTITY_MISMATCH";
         const connectionPill = cardPart(card, "connection-pill");
-        setConnection(card, espOnline ? "available" : "error", espOnline ? "ESP Online" : "ESP Offline");
+        setConnection(card, espOnline ? "available" : "error", espOnline ? "ESP Online" : "ESP Unreachable");
         connectionPill.title = espOnline
             ? "The ESP32 responded, but its status could not be read."
             : "The ESP32 did not respond to the latest status request.";
@@ -944,8 +1008,7 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
             cardPart(card, "last-updated").textContent = "Check the ESP32 response and firmware.";
             hideConnectionHelp(card);
         } else {
-            cardPart(card, "device-status").textContent = "Cannot reach this ESP32";
-            cardPart(card, "last-updated").textContent = "Check its address, proxy, or network connection.";
+            cardPart(card, "last-updated").textContent = "ESP32 status timed out or its network is unavailable. The PC power state has not been changed.";
             showConnectionHelp(card, profile);
         }
     } finally {
@@ -1237,7 +1300,7 @@ async function openRemoteDesktop(profile, card, button) {
         button.classList.remove("is-connecting");
         button.removeAttribute("aria-busy");
         button.setAttribute("aria-label", "Open remote desktop");
-        button.disabled = button.classList.contains("is-unavailable");
+        button.disabled = !remoteStates.get(profile.id)?.canRequest;
         button.title = "Open remote desktop";
         await refreshProfile(profile, { quiet: true });
     }
