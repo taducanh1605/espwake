@@ -1,10 +1,10 @@
-const CACHE_NAME = "esp-wake-shell-v34-hostname";
+const CACHE_NAME = "esp-wake-shell-v37-stream-readiness";
 const APP_SHELL = [
     "./",
     "./index.html",
-    "./css/styles.css?v=20261109-vault2",
-    "./js/encrypted-config.js?v=20261109-vault7",
-    "./js/script.js?v=20261109-hostname1",
+    "./css/styles.css?v=20261111-ready3",
+    "./js/encrypted-config.js?v=20261111-ready3",
+    "./js/script.js?v=20261111-ready3",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",

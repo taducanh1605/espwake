@@ -91,13 +91,138 @@ const EncryptedConfig = (() => {
         return bytes;
     }
 
-    async function deriveKey(password, salt) {
+    async function deriveKey(password, salt, extractable = false) {
         requireCrypto();
         const material = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
         return crypto.subtle.deriveKey(
             { name: "PBKDF2", salt, iterations: ITERATIONS, hash: "SHA-256" },
-            material, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"],
+            material, { name: "AES-GCM", length: 256 }, extractable, ["encrypt", "decrypt"],
         );
+    }
+
+    function vaultBinding(envelope) {
+        return encoder.encode(JSON.stringify({
+            format: envelope.format,
+            version: envelope.version,
+            cipher: envelope.cipher,
+            kdf: envelope.kdf,
+            iterations: envelope.iterations,
+            salt: envelope.salt,
+        }));
+    }
+
+    function wrappingKeyInfo(envelope) {
+        const domain = encoder.encode("ESPWake WebAuthn PRF vault wrap v1\u0000");
+        const binding = vaultBinding(envelope);
+        const info = new Uint8Array(domain.length + binding.length);
+        info.set(domain);
+        info.set(binding, domain.length);
+        return info;
+    }
+
+    function validateBiometricMetadata(metadata) {
+        if (!metadata || metadata.version !== 1 ||
+            typeof metadata.credentialId !== "string" || !/^[A-Za-z0-9_-]{16,2048}$/.test(metadata.credentialId) ||
+            typeof metadata.prfSalt !== "string" || typeof metadata.iv !== "string" ||
+            typeof metadata.wrappedKey !== "string") {
+            throw new Error("Device authenticator data is invalid. Use your settings passphrase.");
+        }
+        const fields = ["version", "credentialId", "prfSalt", "iv", "wrappedKey"];
+        if (Object.keys(metadata).length !== fields.length ||
+            fields.some(field => !Object.prototype.hasOwnProperty.call(metadata, field))) {
+            throw new Error("Device authenticator data is invalid. Use your settings passphrase.");
+        }
+        const credentialBytes = Uint8Array.from(
+            atob(metadata.credentialId.replace(/-/g, "+").replace(/_/g, "/") +
+                "=".repeat((4 - metadata.credentialId.length % 4) % 4)),
+            character => character.charCodeAt(0),
+        );
+        if (!credentialBytes.length || encode(credentialBytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "") !== metadata.credentialId) {
+            throw new Error("Device authenticator data is invalid. Use your settings passphrase.");
+        }
+        decode(metadata.prfSalt, 32);
+        decode(metadata.iv, 12);
+        const wrapped = decode(metadata.wrappedKey);
+        if (wrapped.length !== 48) throw new Error("Device authenticator data is invalid. Use your settings passphrase.");
+        return metadata;
+    }
+
+    async function derivePrfWrappingKey(prfOutput, prfSalt, envelope) {
+        if (!(prfOutput instanceof ArrayBuffer) && !ArrayBuffer.isView(prfOutput)) {
+            throw new Error("This authenticator did not provide secure device-unlock data (WebAuthn PRF). Use your settings passphrase.");
+        }
+        const output = prfOutput instanceof ArrayBuffer
+            ? new Uint8Array(prfOutput)
+            : new Uint8Array(prfOutput.buffer, prfOutput.byteOffset, prfOutput.byteLength);
+        if (output.byteLength !== 32) {
+            output.fill(0);
+            throw new Error("This authenticator returned invalid secure device-unlock data. Use your settings passphrase.");
+        }
+        let material;
+        try {
+            material = await crypto.subtle.importKey("raw", output, "HKDF", false, ["deriveKey"]);
+        } finally {
+            output.fill(0);
+        }
+        return crypto.subtle.deriveKey({
+            name: "HKDF",
+            hash: "SHA-256",
+            salt: prfSalt,
+            info: wrappingKeyInfo(envelope),
+        }, material, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    }
+
+    async function wrapVaultKey(envelope, key, prfOutput, credentialId, savedPrfSalt) {
+        requireCrypto();
+        if (!key || key.type !== "secret" || !key.extractable || key.algorithm?.name !== "AES-GCM" ||
+            key.algorithm.length !== 256 || !key.usages?.includes("decrypt") || !key.usages?.includes("encrypt")) {
+            throw new Error("The vault key cannot be securely wrapped.");
+        }
+        const prfSalt = savedPrfSalt ? decode(savedPrfSalt, 32) : crypto.getRandomValues(new Uint8Array(32));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const wrappingKey = await derivePrfWrappingKey(prfOutput, prfSalt, envelope);
+        const rawKey = new Uint8Array(await crypto.subtle.exportKey("raw", key));
+        try {
+            const wrappedKey = await crypto.subtle.encrypt(
+                { name: "AES-GCM", iv, additionalData: vaultBinding(envelope) },
+                wrappingKey,
+                rawKey,
+            );
+            const metadata = {
+                version: 1,
+                credentialId,
+                prfSalt: encode(prfSalt),
+                iv: encode(iv),
+                wrappedKey: encode(new Uint8Array(wrappedKey)),
+            };
+            return validateBiometricMetadata(metadata);
+        } finally {
+            rawKey.fill(0);
+        }
+    }
+
+    async function unwrapVaultKey(envelope, metadata, prfOutput) {
+        requireCrypto();
+        validateBiometricMetadata(metadata);
+        const prfSalt = decode(metadata.prfSalt, 32);
+        const wrappingKey = await derivePrfWrappingKey(prfOutput, prfSalt, envelope);
+        let rawKey;
+        try {
+            rawKey = new Uint8Array(await crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: decode(metadata.iv, 12), additionalData: vaultBinding(envelope) },
+                wrappingKey,
+                decode(metadata.wrappedKey, 48),
+            ));
+            if (rawKey.length !== 32) throw new Error("Invalid wrapped vault key.");
+            return await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+        } catch (error) {
+            if (error.name === "OperationError") {
+                throw new Error("Device authenticator could not unlock these settings. Use your settings passphrase.");
+            }
+            throw error;
+        } finally {
+            rawKey?.fill(0);
+        }
     }
 
     async function seal(profiles, key, salt) {
@@ -121,18 +246,18 @@ const EncryptedConfig = (() => {
         return { key, salt, envelope: await seal(profiles, key, salt) };
     }
 
-    async function open(envelope, password) {
+    async function open(envelope, password, { extractable = false } = {}) {
         validatePassword(password);
         if (!envelope || envelope.format !== "espwake-encrypted-config" || envelope.version !== 1 ||
             envelope.cipher !== "AES-256-GCM" || envelope.kdf !== "PBKDF2-SHA-256" || envelope.iterations !== ITERATIONS) {
             throw new Error("Unsupported encrypted configuration format.");
         }
         const salt = decode(envelope?.salt, 16);
-        const key = await deriveKey(password, salt);
-        return openWithKey(envelope, key, salt);
+        const key = await deriveKey(password, salt, extractable);
+        return openWithKey(envelope, key, salt, { allowExtractable: extractable });
     }
 
-    async function openWithKey(envelope, key, savedSalt) {
+    async function openWithKey(envelope, key, savedSalt, { allowExtractable = false } = {}) {
         requireCrypto();
         if (!envelope || envelope.format !== "espwake-encrypted-config" || envelope.version !== 1 ||
             envelope.cipher !== "AES-256-GCM" || envelope.kdf !== "PBKDF2-SHA-256" || envelope.iterations !== ITERATIONS) {
@@ -140,7 +265,7 @@ const EncryptedConfig = (() => {
         }
         const salt = decode(envelope.salt, 16);
         if (savedSalt && encode(savedSalt) !== envelope.salt) throw new Error("Saved unlock key does not match this configuration.");
-        if (!key || key.type !== "secret" || key.extractable || key.algorithm?.name !== "AES-GCM" ||
+        if (!key || key.type !== "secret" || (!allowExtractable && key.extractable) || key.algorithm?.name !== "AES-GCM" ||
             key.algorithm.length !== 256 || !key.usages?.includes("decrypt")) {
             throw new Error("Saved unlock key is invalid.");
         }
@@ -164,5 +289,9 @@ const EncryptedConfig = (() => {
         return JSON.parse(contents);
     }
 
-    return { MAX_FILE_BYTES, validateProfiles, validatePassword, requireCrypto, create, seal, open, openWithKey, parseFile };
+    return {
+        MAX_FILE_BYTES, validateProfiles, validatePassword, requireCrypto, create, seal, open,
+        openWithKey, wrapVaultKey, unwrapVaultKey, validateBiometricMetadata,
+        encodeBase64: encode, decodeBase64: decode, parseFile,
+    };
 })();

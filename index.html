@@ -13,7 +13,7 @@
     <link rel="manifest" href="manifest.webmanifest?v=3">
     <link rel="icon" href="icons/esp-wake-192.png?v=3" type="image/png">
     <link rel="apple-touch-icon" href="icons/esp-wake-192.png?v=3">
-    <link rel="stylesheet" href="css/styles.css?v=20261109-vault2">
+    <link rel="stylesheet" href="css/styles.css?v=20261111-ready3">
 </head>
 <body>
     <main class="app-shell">
@@ -22,6 +22,7 @@
                 <p class="eyebrow">Remote power control</p>
                 <h1>ESP Wake</h1>
             </div>
+            <button id="lock-settings" class="add-button" type="button" hidden>Lock settings</button>
         </header>
 
         <section id="vault-panel" class="vault-panel" aria-labelledby="vault-title">
@@ -36,13 +37,11 @@
                 </label>
                 <button id="vault-submit" class="add-button" type="submit">Unlock settings</button>
             </form>
+            <button id="biometric-unlock" class="add-button" type="button" hidden>Unlock with device authenticator</button>
             <p id="vault-message" class="form-message" role="status" aria-live="polite"></p>
         </section>
 
         <section id="dashboard" aria-label="Computers" hidden>
-            <div class="configuration-tools vault-tools" aria-label="Encrypted settings">
-                <button id="lock-settings" class="add-button" type="button">Lock settings</button>
-            </div>
             <p id="configuration-message" class="form-message" role="status" aria-live="polite"></p>
             <div id="computers-list" class="computers-list"></div>
             <div id="empty-state" class="empty-state" hidden>
@@ -53,6 +52,11 @@
                 <button id="add-computer" class="add-button" type="button"><span aria-hidden="true">+</span> Add computer</button>
                 <button id="import-config" class="add-button" type="button">Import computer</button>
             </div>
+            <div class="configuration-tools vault-security-tools" aria-label="Settings unlock">
+                <button id="enable-biometric" class="add-button" type="button" hidden>Set up device authenticator</button>
+                <button id="remove-biometric" class="add-button" type="button" hidden>Remove authenticator from this vault</button>
+            </div>
+            <p id="biometric-support-message" class="last-updated" role="status" hidden></p>
             <button id="export-all" class="add-button export-all-footer" type="button">Export all</button>
         </section>
     </main>
@@ -84,6 +88,21 @@
         </form>
     </dialog>
 
+    <dialog id="biometric-dialog" aria-labelledby="biometric-title" aria-describedby="biometric-description">
+        <form id="biometric-form">
+            <h2 id="biometric-title">Set up device authenticator</h2>
+            <p id="biometric-description">Confirm your settings passphrase, then approve your device's platform authenticator. Depending on your device, verification may use a fingerprint, face recognition, PIN, or another system-approved method. Your passphrase remains available as a fallback.</p>
+            <label>Confirm settings passphrase
+                <input id="biometric-password" type="password" autocomplete="current-password" minlength="6" maxlength="1024" required>
+            </label>
+            <p id="biometric-message" class="form-message" role="status" aria-live="polite"></p>
+            <div class="configuration-tools">
+                <button id="biometric-submit" class="add-button" type="submit">Continue</button>
+                <button id="biometric-cancel" class="add-button" type="button">Cancel</button>
+            </div>
+        </form>
+    </dialog>
+
     <template id="computer-template">
         <article class="computer-card">
             <header class="computer-header">
@@ -98,11 +117,14 @@
                     <button class="icon-button remote-button" data-action="remote" type="button" disabled aria-label="Open remote desktop" title="Waiting for Njk Host">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 16v5"></path></svg>
                     </button>
-                    <div class="order-controls" aria-label="Reorder computer">
-                        <button class="icon-button order-button" data-action="move-up" type="button" aria-label="Move computer up" title="Move computer up">↑</button>
-                        <button class="icon-button order-button" data-action="move-down" type="button" aria-label="Move computer down" title="Move computer down">↓</button>
-                    </div>
-                    <button class="icon-button" data-action="configure" type="button" aria-expanded="false" aria-label="Configure computer" title="Configure computer">⚙</button>
+                    <details class="computer-menu">
+                        <summary class="icon-button" aria-label="Computer actions" title="Computer actions">⋯</summary>
+                        <div class="computer-menu-panel" role="group" aria-label="Computer actions">
+                            <button class="icon-button order-button" data-action="move-up" type="button" aria-label="Move computer up" title="Move computer up">↑</button>
+                            <button class="icon-button order-button" data-action="move-down" type="button" aria-label="Move computer down" title="Move computer down">↓</button>
+                            <button class="icon-button" data-action="configure" type="button" aria-expanded="false" aria-label="Configure computer" title="Configure computer">⚙</button>
+                        </div>
+                    </details>
                 </div>
             </header>
 
@@ -160,7 +182,7 @@
         </article>
     </template>
     
-    <script src="js/encrypted-config.js?v=20261109-vault7"></script>
-    <script src="js/script.js?v=20261109-hostname1"></script>
+    <script src="js/encrypted-config.js?v=20261111-ready3"></script>
+    <script src="js/script.js?v=20261111-ready3"></script>
 </body>
 </html>

@@ -42,13 +42,55 @@ are migrated only after the encrypted record commits successfully; the old
 `profiles`, `baseUrl` and `password` records are deleted in that same transaction.
 Until migration succeeds, legacy records remain unchanged for retry.
 
-The dashboard now starts locked. Enter the settings passphrase on each reload
-to enable computers, polling and control actions. **Lock settings** reloads the
-dashboard and discards the in-memory key. No settings passphrase or decryption
-key is persisted by this app. Losing this passphrase means losing access to
-this browser's saved configuration; keep a separately encrypted export as a
-backup. Your browser/password manager may offer to remember entered passphrases;
-that is outside this application's storage.
+After the passphrase is entered, the dashboard stores the encrypted settings
+and a non-extractable AES-GCM `CryptoKey` in IndexedDB so this browser profile
+can unlock them automatically on later visits. In this remembered-device mode,
+the key is available to this origin in the browser profile and relies on the
+device/browser account being protected; it is not biometric authentication.
+The passphrase itself is never stored. **Lock settings** removes that remembered
+key and reloads the dashboard; the passphrase is then required again.
+
+On supported browsers, choose **Set up device authenticator** while unlocked.
+Setup asks you to re-enter the current settings passphrase, then requires a
+WebAuthn platform authenticator with **user verification required** and the
+WebAuthn PRF extension. The authenticator may use a fingerprint, face
+recognition, device PIN, or another OS-approved method; the dashboard does not
+identify or promise a particular biometric. It derives a wrapping key from the
+authenticator's PRF output and a random salt, then AES-GCM-wraps the existing
+vault key with authenticated data bound to the vault's stable encryption
+metadata. The settings ciphertext and passphrase recovery path do not change.
+In this mode IndexedDB stores only the authenticator credential ID, PRF salt,
+wrap IV and wrapped vault key; the remembered decrypt-capable `CryptoKey` is
+removed and is not recreated by passphrase fallback. The vault key is held only
+in application memory while unlocked.
+
+When device-authenticator mode is enabled, hiding the page/app or leaving it
+causes the dashboard to clear its active vault state and require a fresh
+authenticator assertion (or the settings passphrase). A generation guard
+discards unlocks still pending when the page is hidden or closed. This is a
+best-effort application lock, not secure memory erasure or protection from a
+compromised browser/device. **Remove authenticator from this vault** returns to
+passphrase-only unlock and deletes the wrapped-key metadata from this origin;
+the platform authenticator may retain its credential until removed through
+the browser or OS credential manager. Losing the passphrase means losing the
+recovery path; keep a separately encrypted export as a backup.
+
+Switching from ESPWake to RemotePC also hides the dashboard and locks the
+vault. A short-lived ticket prepared before the switch completes the initial
+handoff without keeping the settings unlocked. If that ticket expires, the
+dashboard will not renew it from a hidden/locked session; RemotePC reports that
+ESPWake settings were locked and asks you to return, unlock with the
+authenticator or passphrase, and reopen RemotePC. This intentionally avoids
+retaining a decrypted vault key or settings solely to renew tickets.
+
+The option is shown only when the secure browser context reports both a
+user-verifying platform authenticator and WebAuthn PRF support. Some browser,
+OS, or authenticator combinations do not expose this capability; use the
+passphrase in those environments. A cancelled, unsupported, or failed setup
+does not replace the vault or passphrase. If the stored authenticator becomes
+unavailable, unlock with the passphrase and remove it. Your browser/password
+manager may offer to remember entered passphrases; that is outside this
+application's storage.
 
 To use the same computers on another phone, tablet or computer:
 
@@ -90,17 +132,61 @@ encryption does not encrypt HTTP network traffic or remove the risks of legacy
 firmware's unverified configured endpoint. Deleted legacy records may remain in
 browser backups or underlying storage; this is not a forensic secure erase.
 
-Encryption/storage regression tests: `node --test tests\encrypted-config.test.cjs`.
+Vault, WebAuthn PRF wrapping/unlock, cancellation, hidden-page locking,
+responsive dashboard, readiness indicator, and encrypted import/export
+regressions: `node --test tests\web\espwake.test.mjs`.
+
+The computer-card status pill reports only whether the ESP32 answered its
+status request; PC power/network state remains in the device-status area and
+Host readiness remains on the RemotePC action. The Chromium browser regression
+checks the expanded action-menu circle at 320, 360, 390, 640, 844, 915, 1024,
+and 1440 CSS pixels in portrait and landscape viewports. Its WebAuthn PRF
+success path uses Chromium's virtual authenticator, and it also verifies that
+missing PRF output leaves the encrypted vault/passphrase intact. This is
+browser-flow evidence, not a guarantee or physical enrollment test for a
+particular phone, OS, biometric or authenticator.
+
+Status requests have a 45-second total budget (including identity verification)
+and a 15-second identity-probe timeout, allowing a busy ESP32 to finish acquiring
+tickets. Polls and other operations on the same board are serialized; another
+7-second poll does not overlap an outstanding status request. A transport
+failure marks the last PC state as stale, disables power/RemotePC actions until
+a successful refresh, and does not infer that the PC powered off.
 
 ## Remote desktop launch
 
-Each computer has a monitor-icon action beside its settings controls. It becomes
-available when the PC is online, **RemotePC streaming** is enabled in the ESP32
-configuration, the paired Windows helper reports Njk Host, and the ESP32 has a
-control password. The device setting is a separate persisted select and defaults
-to disabled. An offline PC or disabled RemotePC has a disabled monitor button
-with a dark icon and red background; its tooltip explains why. Save that same
-password in this computer's ESP Wake profile.
+Each computer has a monitor-icon action beside its settings controls. A request
+can start when the PC is online, **RemotePC streaming** is enabled, a host is
+advertised, and the ESP32 control password is saved. If Host readiness or a
+current ticket is missing, the action can wait for Host refresh; the gateway
+rejects unavailable connection-ticket operations without consuming a ticket.
+The RemotePC button stays **red** until the PC is online, the authenticated Host
+session is reachable (`remote.ready`), a current ticket is reported
+(`remote.available`), streaming is enabled, credentials are configured, and the
+RemotePC PWA in this browser reports **progressing decoded video** for this
+Host with nonblank desktop content (black startup/keepalive frames are not
+confirmation). The Windows helper queries the authenticated Host session; updated
+helper and ESP32 firmware forward its readiness as `remote.ready` and optional
+reason as `remote.reason`. This reports Host gateway/native-bridge readiness,
+not capture certification. A ticket or a powered-on PC alone does not prove
+that the stream can start. Idle/unverified capture is conservatively red but
+still clickable when a connection can be attempted; this is not a PC power-off
+indicator. The browser-only stream evidence contains no credentials, is not
+stored, and expires after 15 seconds without fresh video progress. A stopped
+or failed stream clears it immediately. Browsers without BroadcastChannel
+remain red/unverified. This does not certify a future VDD mode change or repair
+VDD fallback. The
+`remote.available` status must be false for expired tickets; a cached ticket
+presence is not enough. Connection-ticket endpoints remain authoritative and
+may reject or wait even when the status reports availability. Older ESP32
+or helper responses with unknown readiness are shown as **Readiness unknown**,
+not as ready. New firmware accepts old-helper tickets only for a short,
+30-second preflight window; their unknown expiry and missing Host readiness
+never produce **Ticket available**. The gateway still validates each ticket.
+The device setting is a separate persisted select and defaults to disabled. An
+offline PC or disabled RemotePC has a disabled monitor button with a red
+background; its tooltip explains why. Save that same password in this
+computer's ESP Wake profile.
 While the monitor action is preparing access it shows a spinner, a green
 background and `aria-busy`; polling does not turn that busy icon into an
 unavailable/red indicator. Completion or failure restores the monitor icon.
