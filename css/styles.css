@@ -164,6 +164,16 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
 }
 .computer-menu-panel .icon-button { width: 40px; height: 40px; min-height: 40px; flex-basis: 40px; }
 .remote-button { display: inline-grid; place-items: center; background: var(--lime); }
+.remote-button.is-ready {
+    background: #dcecff;
+    border-color: #315d8a;
+    color: #173d63;
+}
+.remote-button.is-waiting {
+    background: #fff0c2;
+    border-color: #876316;
+    color: #62470e;
+}
 .remote-button:disabled, .remote-button.is-unavailable {
     background: #e5a6a0;
     border-color: var(--red);
@@ -172,9 +182,9 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
 }
 .remote-button:disabled svg, .remote-button.is-unavailable svg { opacity: 0.6; }
 .remote-button.is-connecting {
-    background: #e5a6a0;
-    border-color: var(--red);
-    color: #4c2724;
+    background: #dcecff;
+    border-color: #315d8a;
+    color: #173d63;
     opacity: 1;
     cursor: progress;
 }

@@ -648,17 +648,25 @@ function renderRemoteState(profileId) {
     const lastFrameAt = remoteStreams.get(state.host);
     const captureVerified = lastFrameAt !== undefined && Date.now() - lastFrameAt < STREAM_STATUS_TTL_MS;
     const verified = state.canRequest && state.hostReady && state.ticketAvailable && captureVerified;
+    const unavailable = !state.canRequest || (state.readinessKnown && !state.hostReady);
+    const ready = state.canRequest && state.hostReady && state.ticketAvailable;
     remote.disabled = !state.canRequest || launching;
-    remote.classList.toggle("is-unavailable", !verified || launching);
+    remote.classList.toggle("is-unavailable", unavailable && !launching);
+    remote.classList.toggle("is-ready", ready && !verified && !launching);
+    remote.classList.toggle("is-waiting", !unavailable && !ready && !launching);
+    remote.classList.toggle("is-connecting", launching);
+    remote.dataset.remoteState = launching ? "connecting" : unavailable ? "unavailable"
+        : verified ? "streaming" : ready ? "ready" : "waiting";
     remote.title = launching ? "Preparing RemotePC access..."
         : !state.remoteEnabled ? "RemotePC is disabled. Enable it in the ESP32 configuration."
         : !state.pcOnline ? "PC is offline. Wake it before connecting."
         : !state.canRequest ? "Waiting for Njk Host and an ESP32 control password"
-        : !state.readinessKnown ? "Host readiness is unknown (older helper/ESP32 firmware). You can try RemotePC, but capture is not verified."
+        : !state.readinessKnown ? "Try RemotePC. Host readiness is unknown (older helper/ESP32 firmware); availability will be checked when connecting."
         : !state.hostReady ? state.reason || "Host readiness is not confirmed. You can try RemotePC."
         : !state.ticketAvailable ? "Njk Host is reachable; waiting for a current connection ticket."
-        : !captureVerified ? "Ticket available, but desktop capture is not verified. You can try RemotePC; red does not mean the PC is powered off."
+        : !captureVerified ? "Connect RemotePC. Host is reachable and a current ticket is available; desktop capture will be checked when connecting."
         : "RemotePC video is currently verified on this browser. A new connection will still validate capture.";
+    remote.setAttribute("aria-label", remote.title);
 }
 
 if (streamStatusChannel) {
@@ -979,8 +987,11 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
         remoteStates.delete(profile.id);
         const remote = card.querySelector('[data-action="remote"]');
         remote.disabled = true;
+        remote.classList.remove("is-ready", "is-waiting", "is-connecting");
         remote.classList.add("is-unavailable");
+        remote.dataset.remoteState = "unavailable";
         remote.title = "ESP32 status is unavailable; RemotePC readiness cannot be verified.";
+        remote.setAttribute("aria-label", remote.title);
         const lastState = card.dataset.deviceState;
         if (lastState && lastState !== "unknown") {
             card.dataset.statusStale = "true";
