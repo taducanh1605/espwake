@@ -19,9 +19,14 @@ let pollTimer;
 let openSettingsProfileId = null;
 let vaultKey;
 let vaultSalt;
+let biometricMetadata = null;
+let biometricSupported = false;
+let biometricEnrollmentPending = false;
+let vaultEpoch = 0;
 let saveQueue = Promise.resolve();
 const requestsInFlight = new Set();
 const vaultForm = document.getElementById("vault-form");
+const vaultPanel = document.getElementById("vault-panel");
 const vaultPassword = document.getElementById("vault-password");
 const vaultConfirm = document.getElementById("vault-confirm");
 const vaultMessage = document.getElementById("vault-message");
@@ -32,6 +37,15 @@ const transferPassword = document.getElementById("transfer-password");
 const transferConfirm = document.getElementById("transfer-confirm");
 const transferFile = document.getElementById("transfer-file");
 const transferMessage = document.getElementById("transfer-message");
+const lockSettingsButton = document.getElementById("lock-settings");
+const biometricUnlockButton = document.getElementById("biometric-unlock");
+const enableBiometricButton = document.getElementById("enable-biometric");
+const removeBiometricButton = document.getElementById("remove-biometric");
+const biometricSupportMessage = document.getElementById("biometric-support-message");
+const biometricDialog = document.getElementById("biometric-dialog");
+const biometricForm = document.getElementById("biometric-form");
+const biometricPassword = document.getElementById("biometric-password");
+const biometricMessage = document.getElementById("biometric-message");
 let transferMode = "export";
 let transferProfileId = null;
 let transferTrigger;
@@ -59,13 +73,35 @@ function readSetting(id) {
     });
 }
 
-function writeVault(value) {
+function writeVault(value, { rekeyed = false } = {}) {
     return new Promise((resolve, reject) => {
         const transaction = database.transaction(STORE_NAME, "readwrite");
         const store = transaction.objectStore(STORE_NAME);
-        store.put({ id: "encryptedProfiles", value });
-        ["profiles", "baseUrl", "password"].forEach(id => store.delete(id));
-        transaction.oncomplete = () => resolve();
+        const previous = store.get("encryptedProfiles");
+        let invalidatesUnlock = false;
+        previous.onsuccess = () => {
+            invalidatesUnlock = rekeyed || !previous.result?.value || previous.result.value.salt !== value.salt;
+            if (invalidatesUnlock) {
+                store.delete("biometricUnlock");
+                store.delete("deviceUnlockKey");
+            }
+            store.put({ id: "encryptedProfiles", value });
+            ["profiles", "baseUrl", "password"].forEach(id => store.delete(id));
+        };
+        previous.onerror = () => transaction.abort();
+        transaction.oncomplete = () => {
+            if (invalidatesUnlock) {
+                biometricMetadata = null;
+                biometricUnlockButton.hidden = true;
+                removeBiometricButton.hidden = true;
+                enableBiometricButton.hidden = !biometricSupported;
+                if (!dashboard.hidden) {
+                    clearActiveVault();
+                    showVaultForm("Vault encryption changed. The previous authenticator was removed; unlock with the current settings passphrase.");
+                }
+            }
+            resolve();
+        };
         transaction.onabort = () => reject(transaction.error || new Error("Encrypted settings transaction was aborted."));
         transaction.onerror = () => reject(transaction.error);
     });
@@ -87,6 +123,31 @@ function forgetDeviceUnlock() {
         transaction.objectStore(STORE_NAME).delete("deviceUnlockKey");
         transaction.oncomplete = () => resolve();
         transaction.onabort = () => reject(transaction.error || new Error("Browser unlock could not be cleared."));
+        transaction.onerror = () => reject(transaction.error);
+    });
+}
+
+function writeBiometricMetadata(value) {
+    EncryptedConfig.validateBiometricMetadata(value);
+    return new Promise((resolve, reject) => {
+        const transaction = database.transaction(STORE_NAME, "readwrite");
+        const store = transaction.objectStore(STORE_NAME);
+        store.put({ id: "biometricUnlock", value });
+        store.delete("deviceUnlockKey");
+        transaction.oncomplete = resolve;
+        transaction.onabort = () => reject(transaction.error || new Error("Device authenticator setup could not be saved."));
+        transaction.onerror = () => reject(transaction.error);
+    });
+}
+
+function forgetBiometricMetadata() {
+    return new Promise((resolve, reject) => {
+        const transaction = database.transaction(STORE_NAME, "readwrite");
+        const store = transaction.objectStore(STORE_NAME);
+        store.delete("biometricUnlock");
+        store.delete("deviceUnlockKey");
+        transaction.oncomplete = resolve;
+        transaction.onabort = () => reject(transaction.error || new Error("Device authenticator could not be removed."));
         transaction.onerror = () => reject(transaction.error);
     });
 }
@@ -115,14 +176,20 @@ function createProfile(overrides = {}) {
     };
 }
 
-async function loadProfiles(password) {
+async function loadProfiles(password, expectedEpoch = vaultEpoch) {
     const encrypted = await readSetting("encryptedProfiles");
     if (encrypted !== null) {
         const unlocked = await EncryptedConfig.open(encrypted, password);
-        await writeDeviceUnlock(unlocked.key);
-        vaultKey = unlocked.key;
-        vaultSalt = unlocked.salt;
-        return unlocked.profiles;
+        if (expectedEpoch !== vaultEpoch) return null;
+        const biometric = await readSetting("biometricUnlock");
+        if (expectedEpoch !== vaultEpoch) return null;
+        if (biometric) {
+            await forgetDeviceUnlock();
+            biometricMetadata = biometric;
+        } else {
+            await writeDeviceUnlock(unlocked.key);
+        }
+        return unlocked;
     }
     const storedProfiles = await readSetting("profiles");
     let migrated;
@@ -148,19 +215,27 @@ async function loadProfiles(password) {
         })] : [];
     }
     const created = await EncryptedConfig.create(migrated, password);
+    if (expectedEpoch !== vaultEpoch) return null;
     await writeVault(created.envelope);
+    if (expectedEpoch !== vaultEpoch) return null;
     await writeDeviceUnlock(created.key);
-    vaultKey = created.key;
-    vaultSalt = created.salt;
-    return migrated;
+    return { key: created.key, salt: created.salt, profiles: migrated };
 }
 
-async function loadRememberedProfiles() {
+async function loadRememberedProfiles(expectedEpoch = vaultEpoch) {
     const encrypted = await readSetting("encryptedProfiles");
+    const biometric = await readSetting("biometricUnlock");
     const key = await readSetting("deviceUnlockKey");
+    if (expectedEpoch !== vaultEpoch) return null;
+    biometricMetadata = biometric;
+    if (biometric !== null) {
+        await forgetDeviceUnlock();
+        return null;
+    }
     if (encrypted === null || key === null) return null;
     try {
         const unlocked = await EncryptedConfig.openWithKey(encrypted, key);
+        if (expectedEpoch !== vaultEpoch) return null;
         vaultKey = unlocked.key;
         vaultSalt = unlocked.salt;
         return unlocked.profiles;
@@ -168,6 +243,157 @@ async function loadRememberedProfiles() {
         await forgetDeviceUnlock();
         return null;
     }
+}
+
+function randomBytes(length) {
+    return crypto.getRandomValues(new Uint8Array(length));
+}
+
+function encodeCredentialId(bytes) {
+    let binary = "";
+    for (const byte of new Uint8Array(bytes)) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function decodeCredentialId(value) {
+    if (typeof value !== "string" || !/^[A-Za-z0-9_-]{16,2048}$/.test(value)) {
+        throw new Error("Saved device authenticator data is invalid.");
+    }
+    const standard = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = standard + "=".repeat((4 - standard.length % 4) % 4);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+    if (encodeCredentialId(bytes) !== value) throw new Error("Saved device authenticator data is invalid.");
+    return bytes;
+}
+
+async function getBiometricCapability() {
+    if (!globalThis.isSecureContext || !globalThis.PublicKeyCredential ||
+        !navigator.credentials?.create || !navigator.credentials?.get ||
+        typeof PublicKeyCredential.getClientCapabilities !== "function" ||
+        typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable !== "function") {
+        return { supported: false, reason: "This browser does not expose secure platform-authenticator PRF support." };
+    }
+    try {
+        const [capabilities, platformAvailable] = await Promise.all([
+            PublicKeyCredential.getClientCapabilities(),
+            PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(),
+        ]);
+        if (!platformAvailable || capabilities?.["extension:prf"] !== true) {
+            return { supported: false, reason: "This browser or device does not report a user-verifying platform authenticator with WebAuthn PRF support." };
+        }
+        return { supported: true, reason: "" };
+    } catch {
+        return { supported: false, reason: "Platform-authenticator PRF capability could not be verified in this browser." };
+    }
+}
+
+function showVaultForm(message = "") {
+    vaultPanel.hidden = false;
+    vaultForm.hidden = false;
+    dashboard.hidden = true;
+    lockSettingsButton.hidden = true;
+    biometricUnlockButton.hidden = !biometricMetadata || !biometricSupported;
+    enableBiometricButton.hidden = true;
+    removeBiometricButton.hidden = true;
+    vaultMessage.textContent = message;
+    vaultMessage.classList.remove("is-error");
+}
+
+function activateVault(unlocked, expectedEpoch) {
+    if (!unlocked || expectedEpoch !== vaultEpoch) return false;
+    vaultKey = unlocked.key;
+    vaultSalt = unlocked.salt;
+    profiles = unlocked.profiles;
+    vaultPanel.hidden = true;
+    dashboard.hidden = false;
+    lockSettingsButton.hidden = false;
+    enableBiometricButton.hidden = !biometricSupported || Boolean(biometricMetadata);
+    removeBiometricButton.hidden = !biometricMetadata;
+    biometricSupportMessage.hidden = biometricSupported;
+    biometricSupportMessage.textContent = biometricSupported
+        ? ""
+        : "Device-authenticator unlock is not supported by this browser/device. Your settings passphrase remains available.";
+    biometricUnlockButton.hidden = true;
+    renderProfiles();
+    refreshAll();
+    schedulePolling();
+    return true;
+}
+
+function clearActiveVault() {
+    vaultEpoch += 1;
+    biometricEnrollmentPending = false;
+    clearInterval(pollTimer);
+    vaultKey = undefined;
+    vaultSalt = undefined;
+    profiles = [];
+    computersList.replaceChildren();
+    vaultPassword.value = "";
+    vaultConfirm.value = "";
+    biometricPassword.value = "";
+    transferPassword.value = "";
+    transferConfirm.value = "";
+    transferFile.value = "";
+    if (transferDialog.open) transferDialog.close();
+    if (biometricDialog.open) biometricDialog.close();
+}
+
+function lockVaultForLifecycle() {
+    if (!biometricMetadata && !biometricEnrollmentPending) return;
+    clearActiveVault();
+    forgetDeviceUnlock().catch(() => {});
+    showVaultForm("Settings were locked when the app was hidden or closed. Unlock again to continue.");
+}
+
+function getPrfResult(credential) {
+    const result = credential?.getClientExtensionResults?.()?.prf?.results?.first;
+    if (!result || (result.byteLength ?? result.length) !== 32) {
+        throw new Error("The authenticator did not provide WebAuthn PRF output. Your passphrase remains unchanged.");
+    }
+    return result;
+}
+
+async function createPlatformCredential(expectedEpoch) {
+    const challenge = randomBytes(32);
+    const userId = randomBytes(16);
+    const credential = await navigator.credentials.create({
+        publicKey: {
+            challenge,
+            rp: { name: "ESP Wake", id: location.hostname },
+            user: { id: userId, name: "ESP Wake local settings", displayName: "ESP Wake local settings" },
+            pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+            authenticatorSelection: {
+                authenticatorAttachment: "platform",
+                residentKey: "discouraged",
+                userVerification: "required",
+            },
+            timeout: 60000,
+            attestation: "none",
+            extensions: { prf: {} },
+        },
+    });
+    if (expectedEpoch !== vaultEpoch) return null;
+    if (!credential || credential.type !== "public-key") throw new Error("Device authenticator setup was cancelled.");
+    if (credential.getClientExtensionResults?.()?.prf?.enabled !== true) {
+        throw new Error("This authenticator did not confirm WebAuthn PRF support. Your passphrase and settings are unchanged.");
+    }
+    return credential;
+}
+
+async function requestPrfAssertion(metadata, expectedEpoch) {
+    const credential = await navigator.credentials.get({
+        publicKey: {
+            challenge: randomBytes(32),
+            allowCredentials: [{ type: "public-key", id: decodeCredentialId(metadata.credentialId) }],
+            userVerification: "required",
+            timeout: 60000,
+            extensions: { prf: { eval: { first: EncryptedConfig.decodeBase64(metadata.prfSalt, 32) } } },
+        },
+    });
+    if (expectedEpoch !== vaultEpoch) return null;
+    if (!credential || credential.type !== "public-key") throw new Error("Device authenticator unlock was cancelled.");
+    return getPrfResult(credential);
 }
 
 function persistProfiles(value) {
@@ -666,20 +892,55 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
         const device = Object.values(data)[0];
         if (!device || typeof device.stat !== "string") throw new Error("Invalid status response");
 
-        renderPowerState(card, device.stat.toLowerCase());
+        const deviceState = device.stat.toLowerCase();
+        renderPowerState(card, deviceState);
         const remote = card.querySelector('[data-action="remote"]');
-        const pcOnline = ["connected", "up"].includes(device.stat.toLowerCase());
+        const pcOnline = ["connected", "up"].includes(deviceState);
         const remoteEnabled = device.remote?.enabled === true;
-        const unavailable = !pcOnline || !remoteEnabled || !device.remote?.host || !profile.password;
+        const readinessKnown = typeof device.remote?.readiness_known === "boolean"
+            ? device.remote.readiness_known
+            : typeof device.remote?.ready === "boolean";
+        const hostReady = readinessKnown && device.remote?.ready === true;
+        const ticketAvailable = device.remote?.available === true;
+        const readinessReason = typeof device.remote?.reason === "string"
+            ? device.remote.reason.slice(0, 200) : "";
+        const connectionAvailable = pcOnline && remoteEnabled && hostReady && ticketAvailable &&
+            !!device.remote?.host && !!profile.password;
+        const canRequestRemote = pcOnline && remoteEnabled && !!device.remote?.host && !!profile.password;
         const launching = remoteLaunches.has(profile.id);
-        remote.disabled = unavailable || launching;
-        remote.classList.toggle("is-unavailable", unavailable);
+        remote.disabled = !canRequestRemote || launching;
+        remote.classList.toggle("is-unavailable", !canRequestRemote);
         remote.title = launching ? "Preparing RemotePC access..."
             : !remoteEnabled ? "RemotePC is disabled. Enable it in the ESP32 configuration."
             : !pcOnline ? "PC is offline. Wake it before connecting."
             : !device.remote?.host || !profile.password ? "Waiting for Njk Host and an ESP32 control password"
-            : device.remote.available ? "Connect to remote desktop" : "Connect when the helper refreshes access";
-        setConnection(card, "online", "ESP Connected");
+            : !readinessKnown ? "Host readiness is unknown (older helper/ESP32 firmware). RemotePC launch may still work; Njk Host will validate the connection."
+            : !hostReady ? readinessReason || "Host readiness is not confirmed; the connection request will wait for Njk Host."
+            : !ticketAvailable ? "Njk Host is reachable; waiting for a current connection ticket."
+            : "Host reports a ticket; native capture readiness is checked during connection.";
+        const connectionPill = cardPart(card, "connection-pill");
+        if (connectionAvailable) {
+            setConnection(card, "available", "Ticket available");
+            connectionPill.title = "Host session is reachable and a ticket is reported. Native capture/stream readiness is verified during connection.";
+        } else if (pcOnline) {
+            setConnection(card, "online", readinessKnown ? "PC online" : "Readiness unknown");
+            connectionPill.title = !readinessKnown
+                ? "PC is online, but the helper/ESP32 does not report Host readiness. RemotePC launch remains available and is validated by Njk Host."
+                : !hostReady
+                ? readinessReason || "The PC is online; Host readiness is not confirmed."
+                : !ticketAvailable
+                    ? "The PC is online and Host is reachable, but no current ticket is reported."
+                    : "The PC is online, but remote connection requirements are incomplete.";
+        } else if (deviceState === "powered") {
+            setConnection(card, "powered", "Powered on");
+            connectionPill.title = "The PC is powered on but not responding on the network.";
+        } else if (["off", "down"].includes(deviceState)) {
+            setConnection(card, "idle", "Powered off");
+            connectionPill.title = "The PC is powered off.";
+        } else {
+            setConnection(card, "idle", "PC status unknown");
+            connectionPill.title = "The ESP32 did not report a known PC power or connection state.";
+        }
         hideConnectionHelp(card);
         cardPart(card, "last-updated").textContent = `Updated at ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
     } catch (error) {
@@ -949,6 +1210,14 @@ async function openRemoteDesktop(profile, card, button) {
         if (disposed || message?.nonce !== nonce) return;
         if (message.type === "njk-handoff-complete") { cleanup(); return; }
         if (message.type !== "njk-refresh-ticket" || refreshing) return;
+        if (!vaultKey) {
+            reply({
+                type: "njk-fresh-ticket",
+                nonce,
+                error: "ESPWake settings were locked when the app was hidden. Return to ESPWake, unlock with your authenticator or passphrase, then reopen RemotePC to renew access.",
+            });
+            return;
+        }
         refreshing = true;
         try {
             const data = await freshTicket();
@@ -1043,6 +1312,7 @@ computersList.addEventListener("click", async (event) => {
     } else if (button.dataset.action === "refresh") {
         await refreshProfile(profile, { forceProbe: true });
     } else if (button.dataset.action === "configure") {
+        button.closest(".computer-menu")?.removeAttribute("open");
         openSettingsProfileId = cardPart(card, "settings-form").hidden ? profile.id : null;
         setSettingsVisible(card, openSettingsProfileId === profile.id);
     } else if (button.dataset.action === "export") {
@@ -1164,8 +1434,13 @@ addComputerButton.addEventListener("click", async () => {
 });
 
 document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) refreshAll({ quiet: true });
+    if (document.hidden) {
+        lockVaultForLifecycle();
+    } else if (vaultKey) {
+        refreshAll({ quiet: true });
+    }
 });
+window.addEventListener("pagehide", lockVaultForLifecycle);
 
 function showConfigurationMessage(message, isError = false) {
     const notice = document.getElementById("configuration-message");
@@ -1176,27 +1451,153 @@ function showConfigurationMessage(message, isError = false) {
 vaultForm.addEventListener("submit", async event => {
     event.preventDefault();
     const submit = document.getElementById("vault-submit");
+    const expectedEpoch = vaultEpoch;
     submit.disabled = true;
     vaultMessage.textContent = "Opening encrypted settings...";
     vaultMessage.classList.remove("is-error");
     try {
         if (creatingVault && vaultPassword.value !== vaultConfirm.value) throw new Error("Settings passphrases do not match.");
-        profiles = await loadProfiles(vaultPassword.value);
+        const unlocked = await loadProfiles(vaultPassword.value, expectedEpoch);
+        if (expectedEpoch !== vaultEpoch) return;
+        if (!unlocked) return;
         vaultPassword.value = "";
         vaultConfirm.value = "";
-        document.getElementById("vault-panel").hidden = true;
-        dashboard.hidden = false;
-        renderProfiles();
-        refreshAll();
-        schedulePolling();
+        if (!activateVault(unlocked, expectedEpoch)) return;
         addComputerButton.focus();
     } catch (error) {
+        if (expectedEpoch !== vaultEpoch) return;
         vaultMessage.textContent = error.message || "Encrypted settings could not be opened.";
         vaultMessage.classList.add("is-error");
     } finally {
         vaultPassword.value = "";
         vaultConfirm.value = "";
         submit.disabled = false;
+    }
+});
+
+biometricUnlockButton.addEventListener("click", async () => {
+    const expectedEpoch = vaultEpoch;
+    biometricUnlockButton.disabled = true;
+    vaultMessage.textContent = "Waiting for device verification...";
+    vaultMessage.classList.remove("is-error");
+    try {
+        if (!biometricSupported) throw new Error("This browser cannot verify platform-authenticator PRF support. Use your settings passphrase.");
+        const [envelope, metadata] = await Promise.all([
+            readSetting("encryptedProfiles"),
+            readSetting("biometricUnlock"),
+        ]);
+        if (expectedEpoch !== vaultEpoch) return;
+        if (!envelope || !metadata) throw new Error("Device authenticator setup is unavailable. Use your settings passphrase.");
+        const prfOutput = await requestPrfAssertion(metadata, expectedEpoch);
+        if (expectedEpoch !== vaultEpoch) return;
+        const key = await EncryptedConfig.unwrapVaultKey(envelope, metadata, prfOutput);
+        if (expectedEpoch !== vaultEpoch) return;
+        const unlocked = await EncryptedConfig.openWithKey(envelope, key);
+        if (expectedEpoch !== vaultEpoch) return;
+        biometricMetadata = metadata;
+        await forgetDeviceUnlock();
+        if (expectedEpoch !== vaultEpoch) return;
+        activateVault(unlocked, expectedEpoch);
+    } catch (error) {
+        if (expectedEpoch !== vaultEpoch) return;
+        vaultMessage.textContent = error.name === "NotAllowedError"
+            ? "Device verification was cancelled or unavailable. Your settings passphrase still works."
+            : error.message || "Device authenticator could not unlock these settings. Use your passphrase.";
+        vaultMessage.classList.add("is-error");
+    } finally {
+        biometricUnlockButton.disabled = false;
+        if (expectedEpoch === vaultEpoch) biometricUnlockButton.focus();
+    }
+});
+
+enableBiometricButton.addEventListener("click", () => {
+    if (!biometricSupported || !vaultKey) {
+        showConfigurationMessage("This browser cannot verify a secure device-authenticator PRF flow.", true);
+        return;
+    }
+    biometricMessage.textContent = "";
+    biometricMessage.classList.remove("is-error");
+    biometricPassword.value = "";
+    biometricDialog.showModal();
+    biometricPassword.focus();
+});
+
+biometricForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    const submit = document.getElementById("biometric-submit");
+    const expectedEpoch = vaultEpoch;
+    biometricEnrollmentPending = true;
+    submit.disabled = true;
+    biometricMessage.textContent = "Confirming your passphrase...";
+    biometricMessage.classList.remove("is-error");
+    let prfOutput;
+    let unlocked;
+    try {
+        const envelope = await readSetting("encryptedProfiles");
+        unlocked = await EncryptedConfig.open(envelope, biometricPassword.value, { extractable: true });
+        if (expectedEpoch !== vaultEpoch) return;
+        const credential = await createPlatformCredential(expectedEpoch);
+        if (expectedEpoch !== vaultEpoch) return;
+        const credentialId = encodeCredentialId(credential.rawId);
+        const prfSalt = randomBytes(32);
+        const metadata = { credentialId, prfSalt: EncryptedConfig.encodeBase64(prfSalt) };
+        prfOutput = await requestPrfAssertion(metadata, expectedEpoch);
+        if (expectedEpoch !== vaultEpoch) return;
+        const biometric = await EncryptedConfig.wrapVaultKey(
+            envelope, unlocked.key, prfOutput, credentialId, metadata.prfSalt,
+        );
+        if (expectedEpoch !== vaultEpoch) return;
+        await writeBiometricMetadata(biometric);
+        if (expectedEpoch !== vaultEpoch) {
+            biometricMetadata = biometric;
+            biometricUnlockButton.hidden = !biometricSupported;
+            return;
+        }
+        biometricMetadata = biometric;
+        biometricEnrollmentPending = false;
+        await forgetDeviceUnlock();
+        if (expectedEpoch !== vaultEpoch) return;
+        biometricDialog.close();
+        showConfigurationMessage("Device authenticator is set up. The passphrase remains available as a fallback; settings lock when this app is hidden.");
+        enableBiometricButton.hidden = true;
+        removeBiometricButton.hidden = false;
+    } catch (error) {
+        if (expectedEpoch !== vaultEpoch) return;
+        biometricMessage.textContent = error.name === "NotAllowedError"
+            ? "Device setup was cancelled or unavailable. Your settings and passphrase are unchanged."
+            : error.message || "Device authenticator setup failed. Your settings and passphrase are unchanged.";
+        biometricMessage.classList.add("is-error");
+    } finally {
+        if (expectedEpoch === vaultEpoch) biometricEnrollmentPending = false;
+        if (prfOutput instanceof ArrayBuffer) new Uint8Array(prfOutput).fill(0);
+        else if (ArrayBuffer.isView(prfOutput)) new Uint8Array(prfOutput.buffer, prfOutput.byteOffset, prfOutput.byteLength).fill(0);
+        biometricPassword.value = "";
+        submit.disabled = false;
+        unlocked = undefined;
+    }
+});
+
+document.getElementById("biometric-cancel").addEventListener("click", () => {
+    if (!document.getElementById("biometric-submit").disabled) biometricDialog.close();
+});
+
+biometricDialog.addEventListener("cancel", event => {
+    if (document.getElementById("biometric-submit").disabled) event.preventDefault();
+});
+
+removeBiometricButton.addEventListener("click", async () => {
+    removeBiometricButton.disabled = true;
+    try {
+        await saveQueue;
+        await forgetBiometricMetadata();
+        biometricMetadata = null;
+        enableBiometricButton.hidden = !biometricSupported;
+        removeBiometricButton.hidden = true;
+        showConfigurationMessage("Authenticator removed from this vault. Your encrypted settings and passphrase are unchanged.");
+    } catch (error) {
+        showConfigurationMessage(error.message || "Device authenticator could not be removed.", true);
+    } finally {
+        removeBiometricButton.disabled = false;
     }
 });
 
@@ -1320,17 +1721,14 @@ transferDialog.addEventListener("keydown", event => {
     }
 });
 
-document.getElementById("lock-settings").addEventListener("click", async () => {
+lockSettingsButton.addEventListener("click", async () => {
     dashboard.inert = true;
     clearInterval(pollTimer);
     try {
         await Promise.all([...deviceOperations.values()]);
         await saveQueue;
         await forgetDeviceUnlock();
-        profiles = [];
-        vaultKey = undefined;
-        vaultSalt = undefined;
-        computersList.replaceChildren();
+        clearActiveVault();
         window.location.reload();
     } catch (error) {
         dashboard.inert = false;
@@ -1360,7 +1758,7 @@ async function startRemoteBroker(parameters) {
             const remembered = await loadRememberedProfiles();
             const profile = remembered?.find(item => item.id === profileId);
             if (!profile?.password || await readSetting(`remoteHost-${profileId}`) !== host) {
-                throw new Error("Saved ESPWake access is locked, missing, or no longer matches this host. Unlock the selected computer in ESPWake.");
+                throw new Error("ESPWake settings are locked, missing, or no longer match this host. Return to ESPWake, unlock with your authenticator or passphrase, then retry RemotePC access.");
             }
             profiles = remembered;
             const response = await requestDevice(profile, "api/remote", { forceProbe: true });
@@ -1380,6 +1778,8 @@ async function startRemoteBroker(parameters) {
     try {
         EncryptedConfig.requireCrypto();
         database = await openDatabase();
+        const capability = await getBiometricCapability();
+        biometricSupported = capability.supported;
         const brokerParameters = new URLSearchParams(window.location.hash.slice(1));
         if (brokerParameters.get("broker") === "1") {
             await startRemoteBroker(brokerParameters);
@@ -1387,23 +1787,23 @@ async function startRemoteBroker(parameters) {
         }
         creatingVault = await readSetting("encryptedProfiles") === null;
         document.getElementById("vault-description").textContent = creatingVault
-            ? "Create a settings passphrase of at least 6 characters to encrypt this browser's saved computers and control passwords. Existing settings will be migrated. This browser remembers the unlock until you choose Lock settings; the passphrase is never saved and cannot be recovered."
-            : "Enter your settings passphrase to unlock this browser's computers. This browser will remember the unlock until you choose Lock settings. The passphrase is never saved; it is separate from your ESP32 control password.";
+            ? "Create a settings passphrase of at least 6 characters to encrypt this browser's saved computers and control passwords. Existing settings will be migrated. The passphrase is never saved and cannot be recovered."
+            : "Unlock this browser's encrypted computers with your settings passphrase. The passphrase is never saved; it is separate from your ESP32 control password.";
         document.getElementById("vault-submit").textContent = creatingVault ? "Encrypt settings" : "Unlock settings";
         document.getElementById("vault-confirm-label").hidden = !creatingVault;
         vaultConfirm.required = creatingVault;
         vaultPassword.autocomplete = creatingVault ? "new-password" : "current-password";
         const rememberedProfiles = creatingVault ? null : await loadRememberedProfiles();
         if (rememberedProfiles) {
-            profiles = rememberedProfiles;
-            document.getElementById("vault-panel").hidden = true;
-            dashboard.hidden = false;
-            renderProfiles();
-            refreshAll();
-            schedulePolling();
+            activateVault({ key: vaultKey, salt: vaultSalt, profiles: rememberedProfiles }, vaultEpoch);
             return;
         }
         vaultForm.hidden = false;
+        biometricUnlockButton.hidden = !biometricMetadata || !biometricSupported;
+        if (!biometricSupported) {
+            vaultMessage.textContent = `${capability.reason} Your settings passphrase remains available.`;
+            vaultMessage.classList.add("is-error");
+        }
     } catch (error) {
         console.error("Initialization failed:", error);
         vaultMessage.textContent = error.message || "Saved settings could not be loaded in this browser.";
