@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "board": "esp32-c3-devkitm-1",
+  "version": "2026.11.11.2",
+  "url": "https://taducanh1605.github.io/espwake/firmware/2026.11.11.2/esp32_wake_ota.bin",
+  "size": 1715184,
+  "sha256": "532134934c17e224fe6b39b6f8e1106a3cbc1c1c2cf5b04e673b60dcffa9624f"
+}
