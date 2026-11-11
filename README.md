@@ -161,12 +161,12 @@ advertised, and the ESP32 control password is saved. If Host readiness or a
 current ticket is missing, the action can wait for Host refresh; the gateway
 rejects unavailable connection-ticket operations without consuming a ticket.
 The RemotePC action distinguishes connection availability from an active stream:
-**blue** means Connect (Host reachable and a current ticket available),
+**green** means Connect (Host reachable and a current ticket available),
 **amber** means waiting for a ticket or readiness information, and **red** means
 offline, disabled, unreachable, or an explicitly unready Host. Legacy/unknown
-readiness stays retryable in amber. Blue does not promise that VDD/capture will
+readiness stays retryable in amber. Green does not promise that VDD/capture will
 start; the connection flow still checks that. A ticket alone never turns it green.
-The RemotePC button turns **green** only when the PC is online, the authenticated Host
+The RemotePC button turns **blue** only when the PC is online, the authenticated Host
 session is reachable (`remote.ready`), a current ticket is reported
 (`remote.available`), streaming is enabled, credentials are configured, and the
 RemotePC PWA in this browser reports **progressing decoded video** for this
@@ -176,11 +176,11 @@ helper and ESP32 firmware forward its readiness as `remote.ready` and optional
 reason as `remote.reason`. This reports Host gateway/native-bridge readiness,
 not capture certification. A ticket or a powered-on PC alone does not prove
 that the stream can start. Lack of prior video is not a connection failure:
-it leaves the action blue when Host and ticket prerequisites are present.
+it leaves the action green when Host and ticket prerequisites are present.
 The browser-only stream evidence contains no credentials, is not
 stored, and expires after 15 seconds without fresh video progress. A stopped
 or failed stream clears it immediately. Browsers without BroadcastChannel
-retain the blue/amber connection action rather than requiring video evidence.
+retain the green/amber connection action rather than requiring video evidence.
 This does not certify a future VDD mode change or repair
 VDD fallback. The
 `remote.available` status must be false for expired tickets; a cached ticket
@@ -194,7 +194,7 @@ The device setting is a separate persisted select and defaults to disabled. An
 offline PC or disabled RemotePC has a disabled monitor button with a red
 background; its tooltip explains why. Save that same password in this
 computer's ESP Wake profile.
-While the monitor action is preparing access it shows a spinner, a blue
+While the monitor action is preparing access it shows a spinner, a green
 background and `aria-busy`; polling does not turn that busy icon into an
 unavailable/red indicator. Completion or failure restores the monitor icon.
 Dark/red remains reserved for an offline PC or disabled/unavailable RemotePC.

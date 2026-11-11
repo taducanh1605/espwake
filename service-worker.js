@@ -1,8 +1,8 @@
-const CACHE_NAME = "esp-wake-shell-v38-connect-action";
+const CACHE_NAME = "esp-wake-shell-v39-connect-colors";
 const APP_SHELL = [
     "./",
     "./index.html",
-    "./css/styles.css?v=20261111-connect4",
+    "./css/styles.css?v=20261111-connect5",
     "./js/encrypted-config.js?v=20261111-ready3",
     "./js/script.js?v=20261111-connect4",
     "./manifest.webmanifest?v=3",
