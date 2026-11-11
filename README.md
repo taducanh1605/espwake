@@ -136,6 +136,16 @@ Vault, WebAuthn PRF wrapping/unlock, cancellation, hidden-page locking,
 responsive dashboard, readiness indicator, and encrypted import/export
 regressions: `node --test tests\web\espwake.test.mjs`.
 
+The computer-card status pill reports only whether the ESP32 answered its
+status request; PC power/network state remains in the device-status area and
+Host readiness remains on the RemotePC action. The Chromium browser regression
+checks the expanded action-menu circle at 320, 360, 390, 640, 844, 915, 1024,
+and 1440 CSS pixels in portrait and landscape viewports. Its WebAuthn PRF
+success path uses Chromium's virtual authenticator, and it also verifies that
+missing PRF output leaves the encrypted vault/passphrase intact. This is
+browser-flow evidence, not a guarantee or physical enrollment test for a
+particular phone, OS, biometric or authenticator.
+
 ## Remote desktop launch
 
 Each computer has a monitor-icon action beside its settings controls. A request

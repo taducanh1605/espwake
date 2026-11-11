@@ -349,7 +349,7 @@ function lockVaultForLifecycle() {
 function getPrfResult(credential) {
     const result = credential?.getClientExtensionResults?.()?.prf?.results?.first;
     if (!result || (result.byteLength ?? result.length) !== 32) {
-        throw new Error("The authenticator did not provide WebAuthn PRF output. Your passphrase remains unchanged.");
+        throw new Error("This authenticator did not provide secure device-unlock data (WebAuthn PRF). Your settings are unchanged; use your settings passphrase.");
     }
     return result;
 }
@@ -376,7 +376,7 @@ async function createPlatformCredential(expectedEpoch) {
     if (expectedEpoch !== vaultEpoch) return null;
     if (!credential || credential.type !== "public-key") throw new Error("Device authenticator setup was cancelled.");
     if (credential.getClientExtensionResults?.()?.prf?.enabled !== true) {
-        throw new Error("This authenticator did not confirm WebAuthn PRF support. Your passphrase and settings are unchanged.");
+        throw new Error("This authenticator does not support secure device unlock (WebAuthn PRF). Your passphrase and settings are unchanged.");
     }
     return credential;
 }
@@ -881,9 +881,11 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
     requestsInFlight.add(profile.id);
     const refreshButton = card.querySelector('[data-action="refresh"]');
     if (!quiet) refreshButton.classList.add("is-loading");
+    let espResponded = false;
 
     try {
         const response = await requestDevice(profile, "stt", { forceProbe, retryStatus: true });
+        espResponded = true;
         const identity = cardPart(card, "device-identity");
         identity.textContent = profile.deviceHostname ? `Device: ${profile.deviceHostname}` : "Device identity: legacy firmware";
         identity.hidden = false;
@@ -904,8 +906,6 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
         const ticketAvailable = device.remote?.available === true;
         const readinessReason = typeof device.remote?.reason === "string"
             ? device.remote.reason.slice(0, 200) : "";
-        const connectionAvailable = pcOnline && remoteEnabled && hostReady && ticketAvailable &&
-            !!device.remote?.host && !!profile.password;
         const canRequestRemote = pcOnline && remoteEnabled && !!device.remote?.host && !!profile.password;
         const launching = remoteLaunches.has(profile.id);
         remote.disabled = !canRequestRemote || launching;
@@ -919,44 +919,31 @@ async function refreshProfile(profile, { quiet = false, forceProbe = false } = {
             : !ticketAvailable ? "Njk Host is reachable; waiting for a current connection ticket."
             : "Host reports a ticket; native capture readiness is checked during connection.";
         const connectionPill = cardPart(card, "connection-pill");
-        if (connectionAvailable) {
-            setConnection(card, "available", "Ticket available");
-            connectionPill.title = "Host session is reachable and a ticket is reported. Native capture/stream readiness is verified during connection.";
-        } else if (pcOnline) {
-            setConnection(card, "online", readinessKnown ? "PC online" : "Readiness unknown");
-            connectionPill.title = !readinessKnown
-                ? "PC is online, but the helper/ESP32 does not report Host readiness. RemotePC launch remains available and is validated by Njk Host."
-                : !hostReady
-                ? readinessReason || "The PC is online; Host readiness is not confirmed."
-                : !ticketAvailable
-                    ? "The PC is online and Host is reachable, but no current ticket is reported."
-                    : "The PC is online, but remote connection requirements are incomplete.";
-        } else if (deviceState === "powered") {
-            setConnection(card, "powered", "Powered on");
-            connectionPill.title = "The PC is powered on but not responding on the network.";
-        } else if (["off", "down"].includes(deviceState)) {
-            setConnection(card, "idle", "Powered off");
-            connectionPill.title = "The PC is powered off.";
-        } else {
-            setConnection(card, "idle", "PC status unknown");
-            connectionPill.title = "The ESP32 did not report a known PC power or connection state.";
-        }
+        setConnection(card, "available", "ESP Online");
+        connectionPill.title = "The ESP32 responded to the latest status request.";
         hideConnectionHelp(card);
         cardPart(card, "last-updated").textContent = `Updated at ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
     } catch (error) {
         console.error(`Status request failed for ${profile.name}:`, error);
         renderPowerState(card, "unknown");
+        const espOnline = espResponded || error.status !== undefined || error.code === "DEVICE_IDENTITY_MISMATCH";
+        const connectionPill = cardPart(card, "connection-pill");
+        setConnection(card, espOnline ? "available" : "error", espOnline ? "ESP Online" : "ESP Offline");
+        connectionPill.title = espOnline
+            ? "The ESP32 responded, but its status could not be read."
+            : "The ESP32 did not respond to the latest status request.";
         if (error.code === "DEVICE_IDENTITY_MISMATCH") {
-            setConnection(card, "error", "ESP32 identity mismatch");
             cardPart(card, "device-status").textContent = error.message;
             hideConnectionHelp(card);
         } else if (error.status === 401 || error.status === 403) {
-            setConnection(card, "error", "Authentication failed");
             cardPart(card, "device-status").textContent = "Cannot authenticate with this ESP32";
             cardPart(card, "last-updated").textContent = "Check or clear the saved control password.";
             hideConnectionHelp(card);
+        } else if (espOnline) {
+            cardPart(card, "device-status").textContent = "ESP32 responded, but its status could not be read.";
+            cardPart(card, "last-updated").textContent = "Check the ESP32 response and firmware.";
+            hideConnectionHelp(card);
         } else {
-            setConnection(card, "error", "ESP Offline");
             cardPart(card, "device-status").textContent = "Cannot reach this ESP32";
             cardPart(card, "last-updated").textContent = "Check its address, proxy, or network connection.";
             showConnectionHelp(card, profile);
@@ -1502,6 +1489,8 @@ biometricUnlockButton.addEventListener("click", async () => {
         if (expectedEpoch !== vaultEpoch) return;
         vaultMessage.textContent = error.name === "NotAllowedError"
             ? "Device verification was cancelled or unavailable. Your settings passphrase still works."
+            : error.name === "NotSupportedError"
+                ? "This browser or authenticator does not support secure device unlock. Your settings passphrase still works."
             : error.message || "Device authenticator could not unlock these settings. Use your passphrase.";
         vaultMessage.classList.add("is-error");
     } finally {
@@ -1565,6 +1554,8 @@ biometricForm.addEventListener("submit", async event => {
         if (expectedEpoch !== vaultEpoch) return;
         biometricMessage.textContent = error.name === "NotAllowedError"
             ? "Device setup was cancelled or unavailable. Your settings and passphrase are unchanged."
+            : error.name === "NotSupportedError"
+                ? "This browser or authenticator does not support secure device unlock. Your settings and passphrase are unchanged; use your settings passphrase."
             : error.message || "Device authenticator setup failed. Your settings and passphrase are unchanged.";
         biometricMessage.classList.add("is-error");
     } finally {

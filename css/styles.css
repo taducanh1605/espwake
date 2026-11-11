@@ -145,6 +145,8 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
     cursor: pointer;
     font-size: 1.65rem;
     line-height: 1;
+    height: 44px;
+    min-height: 44px;
 }
 .computer-menu > summary::-webkit-details-marker { display: none; }
 .computer-menu-panel {
@@ -399,7 +401,7 @@ input::placeholder { color: #97a098; }
     .card-tools { align-self: center; gap: 5px; }
     .connection-pill { min-height: 32px; gap: 6px; padding: 6px 8px; font-size: 0.66rem; }
     .connection-pill .status-dot { width: 7px; height: 7px; }
-    .card-tools > .icon-button, .computer-menu > summary { width: 38px; min-height: 38px; flex-basis: 38px; }
+    .card-tools > .icon-button, .computer-menu > summary { width: 38px; height: 38px; min-height: 38px; flex-basis: 38px; }
     .remote-button svg { width: 21px; height: 21px; }
     .computer-menu-panel { gap: 4px; padding: 6px; }
     .computer-menu-panel .icon-button { width: 38px; height: 38px; min-height: 38px; flex-basis: 38px; }

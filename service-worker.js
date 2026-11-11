@@ -1,10 +1,10 @@
-const CACHE_NAME = "esp-wake-shell-v35-web-authn-prf";
+const CACHE_NAME = "esp-wake-shell-v36-web-authn-prf";
 const APP_SHELL = [
     "./",
     "./index.html",
-    "./css/styles.css?v=20261111-prf1",
-    "./js/encrypted-config.js?v=20261111-prf1",
-    "./js/script.js?v=20261111-prf1",
+    "./css/styles.css?v=20261111-prf2",
+    "./js/encrypted-config.js?v=20261111-prf2",
+    "./js/script.js?v=20261111-prf2",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",

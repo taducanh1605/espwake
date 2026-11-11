@@ -149,14 +149,14 @@ const EncryptedConfig = (() => {
 
     async function derivePrfWrappingKey(prfOutput, prfSalt, envelope) {
         if (!(prfOutput instanceof ArrayBuffer) && !ArrayBuffer.isView(prfOutput)) {
-            throw new Error("This authenticator did not provide the required PRF output.");
+            throw new Error("This authenticator did not provide secure device-unlock data (WebAuthn PRF). Use your settings passphrase.");
         }
         const output = prfOutput instanceof ArrayBuffer
             ? new Uint8Array(prfOutput)
             : new Uint8Array(prfOutput.buffer, prfOutput.byteOffset, prfOutput.byteLength);
         if (output.byteLength !== 32) {
             output.fill(0);
-            throw new Error("This authenticator returned an invalid PRF result.");
+            throw new Error("This authenticator returned invalid secure device-unlock data. Use your settings passphrase.");
         }
         let material;
         try {
