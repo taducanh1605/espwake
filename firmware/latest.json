@@ -1,8 +1,8 @@
 {
     "schema":  1,
     "board":  "esp32-c3-devkitm-1",
-    "version":  "2026.11.12.1",
-    "url":  "https://taducanh1605.github.io/espwake/firmware/2026.11.12.1/esp32_wake_ota.bin",
-    "size":  1717040,
-    "sha256":  "13cc8d2a450b5c1401dabc5c0326b14bf368fb2409d2e9e9563097cce4edbb9c"
+    "version":  "2026.11.12.2",
+    "url":  "https://taducanh1605.github.io/espwake/firmware/2026.11.12.2/esp32_wake_ota.bin",
+    "size":  1718000,
+    "sha256":  "31c709e59e40cc315cdbcdb3559b787398d33bdbd9028d38d15106c34882e023"
 }
