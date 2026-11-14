@@ -1,10 +1,10 @@
-const CACHE_NAME = "esp-wake-shell-v42-embedded";
+const CACHE_NAME = "esp-wake-shell-v43-viewport";
 const APP_SHELL = [
     "./",
     "./index.html",
-    "./css/styles.css?v=20261114-embedded1",
+    "./css/styles.css?v=20261114-embedded2",
     "./js/encrypted-config.js?v=20261111-ready3",
-    "./js/script.js?v=20261114-embedded1",
+    "./js/script.js?v=20261114-embedded2",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",

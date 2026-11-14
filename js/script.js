@@ -1238,18 +1238,49 @@ function remoteConnection(data) {
 }
 
 let embeddedRemote;
+function resizeEmbeddedRemote() {
+    if (!embeddedRemote || document.hidden) return;
+    const viewport = window.visualViewport;
+    const top = Math.max(0, viewport?.offsetTop || 0);
+    const left = Math.max(0, viewport?.offsetLeft || 0);
+    const width = Math.max(1, Math.min(viewport?.width || innerWidth, innerWidth - left));
+    let height = Math.min(viewport?.height || innerHeight, innerHeight - top);
+    const keyboard = navigator.virtualKeyboard?.boundingRect;
+    if (keyboard?.height > 0) {
+        const keyboardTop = Math.abs(keyboard.y + keyboard.height - innerHeight) <= 2
+            ? keyboard.y : innerHeight - keyboard.height;
+        height = Math.min(height, keyboardTop - top);
+    }
+    const workspace = document.getElementById("remote-workspace");
+    workspace.style.top = `${top}px`;
+    workspace.style.left = `${left}px`;
+    workspace.style.width = `${width}px`;
+    workspace.style.height = `${Math.max(1, height)}px`;
+    embeddedRemote.frame.contentWindow?.postMessage({
+        type: "njk-embedded-viewport",
+        viewport: document.fullscreenElement === embeddedRemote.frame
+            ? { width, height: Math.max(1, height), top, left } : null,
+    }, "https://taducanh1605.github.io");
+}
+window.visualViewport?.addEventListener("resize", resizeEmbeddedRemote);
+window.visualViewport?.addEventListener("scroll", resizeEmbeddedRemote);
+navigator.virtualKeyboard?.addEventListener("geometrychange", resizeEmbeddedRemote);
+window.addEventListener("resize", resizeEmbeddedRemote);
+document.addEventListener("fullscreenchange", resizeEmbeddedRemote);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) resizeEmbeddedRemote(); });
+
 function closeEmbeddedRemote() {
     if (!embeddedRemote) return;
     const { frame, cleanup, button } = embeddedRemote;
     embeddedRemote = undefined;
     cleanup?.();
     frame.remove();
-    document.getElementById("remote-workspace").hidden = true;
+    const workspace = document.getElementById("remote-workspace");
+    workspace.hidden = true;
+    workspace.removeAttribute("style");
     document.body.classList.remove("remote-active");
     button.focus({ preventScroll: true });
 }
-document.getElementById("remote-back").addEventListener("click", closeEmbeddedRemote);
-
 async function openRemoteDesktop(profile, card, button) {
     if (remoteLaunches.has(profile.id)) return;
     if (!profile.password) throw new Error("Configure an ESP32 control password before launching remote desktop.");
@@ -1274,9 +1305,12 @@ async function openRemoteDesktop(profile, card, button) {
     const remoteWindow = frame.contentWindow;
     const loadingStatus = document.getElementById("remote-workspace-status");
     loadingStatus.textContent = "Getting a one-time connection ticket...";
+    loadingStatus.hidden = false;
     document.getElementById("remote-workspace").hidden = false;
     document.body.classList.add("remote-active");
     embeddedRemote = { frame, button };
+    frame.addEventListener("load", resizeEmbeddedRemote);
+    resizeEmbeddedRemote();
     remoteLaunches.add(profile.id);
     const originalIcon = button.innerHTML;
     const spinner = document.createElement("span");
@@ -1347,7 +1381,7 @@ async function openRemoteDesktop(profile, card, button) {
         if (disposed || embeddedRemote?.frame !== frame) return;
         const fragment = new URLSearchParams({ ...data, profileId: profile.id, fullscreen: "1", return: "espwake", nonce, clientId: viewerId, sameWindow: "1" });
         frame.src = `https://taducanh1605.github.io/remotepc/#${fragment}`;
-        loadingStatus.textContent = profile.name;
+        loadingStatus.hidden = true;
     } catch (error) {
         closeEmbeddedRemote();
         throw error;

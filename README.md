@@ -237,13 +237,20 @@ Windows helper refreshes the pool. Update the Host gateway before this dashboard
 certificate failures provide a certificate-check link without leaving ESPWake.
 RemotePC opens inside a full-page iframe in ESPWake, on desktop, touch/mobile
 and installed ESPWake alike. The existing RemotePC PWA and its deployment remain
-unchanged; no second copy of its streaming code is shipped with ESPWake.
+shared; no second copy of its streaming code is shipped with ESPWake.
 The frame delegates fullscreen, audio playback, microphone and gamepad access
-subject to browser permission. **Back to ESPWake** removes the frame (releasing
-its session through RemotePC's existing pagehide handling) and restores the
-dashboard. RemotePC's Disconnect/Quit returns the frame to ESPWake, whose
+subject to browser permission. There is no separate return toolbar taking
+stream space. RemotePC's **Disconnect/Quit** returns the frame to ESPWake, whose
 embedded return page signals the parent to close it without initializing another
 vault or biometric prompt. Reset connection stays inside the frame.
+ESPWake sizes the iframe from the top-level visual viewport and keyboard
+occlusion, including pan offsets, so opening/closing the keyboard and rotation
+reach RemotePC's normal Host resize/ACK path. Fullscreen pins the iframe's
+outer size in the browser; PWA 58 accepts a bounded viewport message only from
+its same-origin parent to size the video and requested Host desktop in that
+case. Exiting fullscreen clears the override. Standalone RemotePC behavior is
+unchanged. This is not a CSS-only shrink of the video: the integration tests
+verify the resulting Host resize payload and avoid duplicate mode changes.
 A browser requiring
 a fresh user gesture can defer fullscreen until the first video tap without
 blocking the stream or asking for a token/Connect click. Versioned script assets
@@ -283,8 +290,8 @@ After deploying changes to GitHub Pages, reload the dashboard to receive the upd
 ### Automatic biometric unlock frontend release
 
 The embedded RemotePC update uses CSS and script asset version
-`20261114-embedded1` and service-worker cache
-`esp-wake-shell-v42-embedded`. When the locked page opens, an enrolled and
+`20261114-embedded2` and service-worker cache
+`esp-wake-shell-v43-viewport`. When the locked page opens, an enrolled and
 supported authenticator is prompted once; cancelling leaves passphrase recovery
 available and focuses its input. Hidden pages and the RemotePC broker do not
 start an automatic prompt. This does not change the encrypted file format,
