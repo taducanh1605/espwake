@@ -6,6 +6,7 @@ const STATUS_REQUEST_TIMEOUT_MS = 45000;
 const STATUS_REQUEST_ATTEMPTS = 1;
 const IDENTITY_PROBE_TIMEOUT_MS = 15000;
 const ENDPOINT_REFRESH_MS = 300000;
+const HIDDEN_VAULT_GRACE_MS = 60000;
 const DEFAULT_PASSWORD = "12345678";
 
 const computersList = document.getElementById("computers-list");
@@ -23,6 +24,8 @@ let biometricMetadata = null;
 let biometricSupported = false;
 let biometricEnrollmentPending = false;
 let vaultEpoch = 0;
+let vaultHiddenAt = null;
+let vaultHiddenTimer;
 let saveQueue = Promise.resolve();
 const requestsInFlight = new Set();
 const vaultForm = document.getElementById("vault-form");
@@ -301,6 +304,7 @@ function showVaultForm(message = "") {
 }
 
 function activateVault(unlocked, expectedEpoch) {
+    expireHiddenVault();
     if (!unlocked || expectedEpoch !== vaultEpoch) return false;
     vaultKey = unlocked.key;
     vaultSalt = unlocked.salt;
@@ -322,6 +326,7 @@ function activateVault(unlocked, expectedEpoch) {
 }
 
 function clearActiveVault() {
+    cancelHiddenVaultLock();
     vaultEpoch += 1;
     biometricEnrollmentPending = false;
     clearInterval(pollTimer);
@@ -343,7 +348,31 @@ function lockVaultForLifecycle() {
     if (!biometricMetadata && !biometricEnrollmentPending) return;
     clearActiveVault();
     forgetDeviceUnlock().catch(() => {});
-    showVaultForm("Settings were locked when the app was hidden or closed. Unlock again to continue.");
+    showVaultForm("Settings were locked after the app was hidden for 60 seconds or the page was left. Unlock again to continue.");
+}
+
+function cancelHiddenVaultLock() {
+    clearTimeout(vaultHiddenTimer);
+    vaultHiddenTimer = undefined;
+    vaultHiddenAt = null;
+}
+
+function expireHiddenVault() {
+    if (vaultHiddenAt !== null && Date.now() - vaultHiddenAt >= HIDDEN_VAULT_GRACE_MS) {
+        lockVaultForLifecycle();
+    }
+}
+
+function scheduleHiddenVaultLock() {
+    if (!biometricMetadata && !biometricEnrollmentPending) return;
+    // Only an already-unlocked vault gets grace, not an in-flight authentication.
+    if (!vaultKey || biometricEnrollmentPending) {
+        lockVaultForLifecycle();
+        return;
+    }
+    if (vaultHiddenAt !== null) return;
+    vaultHiddenAt = Date.now();
+    vaultHiddenTimer = setTimeout(expireHiddenVault, HIDDEN_VAULT_GRACE_MS);
 }
 
 function getPrfResult(credential) {
@@ -1271,11 +1300,11 @@ async function openRemoteDesktop(profile, card, button) {
         if (disposed || message?.nonce !== nonce) return;
         if (message.type === "njk-handoff-complete") { cleanup(); return; }
         if (message.type !== "njk-refresh-ticket" || refreshing) return;
-        if (!vaultKey) {
+        if (!vaultKey || (document.hidden && (biometricMetadata || biometricEnrollmentPending))) {
             reply({
                 type: "njk-fresh-ticket",
                 nonce,
-                error: "ESPWake settings were locked when the app was hidden. Return to ESPWake, unlock with your authenticator or passphrase, then reopen RemotePC to renew access.",
+                error: "ESPWake settings are hidden or locked. Return to ESPWake, unlock if needed, then reopen RemotePC to renew access.",
             });
             return;
         }
@@ -1496,9 +1525,12 @@ addComputerButton.addEventListener("click", async () => {
 
 document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-        lockVaultForLifecycle();
-    } else if (vaultKey) {
-        refreshAll({ quiet: true });
+        scheduleHiddenVaultLock();
+    } else {
+        // Background timers may be suspended, so check elapsed time before resuming.
+        expireHiddenVault();
+        cancelHiddenVaultLock();
+        if (vaultKey) refreshAll({ quiet: true });
     }
 });
 window.addEventListener("pagehide", lockVaultForLifecycle);
@@ -1621,7 +1653,7 @@ biometricForm.addEventListener("submit", async event => {
         await forgetDeviceUnlock();
         if (expectedEpoch !== vaultEpoch) return;
         biometricDialog.close();
-        showConfigurationMessage("Device authenticator is set up. The passphrase remains available as a fallback; settings lock when this app is hidden.");
+        showConfigurationMessage("Device authenticator is set up. The passphrase remains available as a fallback; settings lock after 60 seconds hidden or when leaving this page.");
         enableBiometricButton.hidden = true;
         removeBiometricButton.hidden = false;
     } catch (error) {
@@ -1709,6 +1741,8 @@ transferDialog.addEventListener("close", () => {
 
 transferForm.addEventListener("submit", async event => {
     event.preventDefault();
+    if (!vaultKey) return;
+    const expectedEpoch = vaultEpoch;
     const submit = document.getElementById("transfer-submit");
     submit.disabled = true;
     document.getElementById("transfer-cancel").disabled = true;
@@ -1720,6 +1754,8 @@ transferForm.addEventListener("submit", async event => {
             if (transferPassword.value !== transferConfirm.value) throw new Error("File passphrases do not match.");
             const exportedProfiles = configurationForExport(transferProfileId);
             const { envelope } = await EncryptedConfig.create(exportedProfiles, transferPassword.value);
+            expireHiddenVault();
+            if (expectedEpoch !== vaultEpoch) return;
             const blob = new Blob([JSON.stringify(envelope)], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
@@ -1734,6 +1770,8 @@ transferForm.addEventListener("submit", async event => {
             const file = transferFile.files[0];
             if (!file || file.size > EncryptedConfig.MAX_FILE_BYTES) throw new Error("Select a configuration file no larger than 1 MB.");
             const { profiles: imported } = await EncryptedConfig.open(EncryptedConfig.parseFile(await file.text()), transferPassword.value);
+            expireHiddenVault();
+            if (expectedEpoch !== vaultEpoch) return;
             const replace = document.getElementById("transfer-mode").value === "replace";
             if (replace && !window.confirm("Replace all saved computers with this file? Export a backup first if needed.")) return;
             const updated = replace ? [] : [...profiles];
@@ -1754,9 +1792,10 @@ transferForm.addEventListener("submit", async event => {
             try {
                 await saveProfiles();
             } catch (error) {
-                profiles = previousProfiles;
+                if (expectedEpoch === vaultEpoch) profiles = previousProfiles;
                 throw error;
             }
+            if (expectedEpoch !== vaultEpoch) return;
             openSettingsProfileId = null;
             renderProfiles();
             refreshAll();
@@ -1764,6 +1803,7 @@ transferForm.addEventListener("submit", async event => {
         }
         transferDialog.close();
     } catch (error) {
+        if (expectedEpoch !== vaultEpoch) return;
         transferMessage.textContent = error.message || "Configuration transfer failed.";
         transferMessage.classList.add("is-error");
     } finally {

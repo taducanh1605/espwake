@@ -64,10 +64,18 @@ wrap IV and wrapped vault key; the remembered decrypt-capable `CryptoKey` is
 removed and is not recreated by passphrase fallback. The vault key is held only
 in application memory while unlocked.
 
-When device-authenticator mode is enabled, hiding the page/app or leaving it
-causes the dashboard to clear its active vault state and require a fresh
-authenticator assertion (or the settings passphrase). A generation guard
-discards unlocks still pending when the page is hidden or closed. This is a
+When device-authenticator mode is enabled, an already-unlocked dashboard has a
+**60-second background grace period**. Returning before 60 seconds keeps the
+current settings and import/export dialog intact, including a quick switch to
+the system file picker. At 60 seconds hidden, the dashboard clears its active
+vault state and requires a fresh authenticator assertion (or settings
+passphrase). The return-to-app handler checks elapsed time before resuming,
+even if the browser suspended its background timer. Each new background visit
+gets its own grace period; duplicate hidden events do not extend it.
+**Lock settings** and leaving/reloading the page still lock without this grace.
+A pending unlock or authenticator enrollment is still invalidated immediately
+when hidden or closed; grace does not let a late authentication result reopen
+a locked vault. Interrupted transfers cannot restore cleared settings. This is a
 best-effort application lock, not secure memory erasure or protection from a
 compromised browser/device. **Remove authenticator from this vault** returns to
 passphrase-only unlock and deletes the wrapped-key metadata from this origin;
@@ -75,13 +83,13 @@ the platform authenticator may retain its credential until removed through
 the browser or OS credential manager. Losing the passphrase means losing the
 recovery path; keep a separately encrypted export as a backup.
 
-Switching from ESPWake to RemotePC also hides the dashboard and locks the
-vault. A short-lived ticket prepared before the switch completes the initial
-handoff without keeping the settings unlocked. If that ticket expires, the
+Switching from ESPWake to RemotePC also hides the dashboard and starts the same
+60-second grace period (leaving the page locks immediately). A short-lived
+ticket prepared before the switch completes the initial handoff. If it expires, the
 dashboard will not renew it from a hidden/locked session; RemotePC reports that
-ESPWake settings were locked and asks you to return, unlock with the
-authenticator or passphrase, and reopen RemotePC. This intentionally avoids
-retaining a decrypted vault key or settings solely to renew tickets.
+ESPWake settings are hidden or locked and asks you to return, unlock if needed,
+and reopen RemotePC. The grace period does not authorize hidden ticket renewal
+or extend the time the vault stays unlocked solely to renew tickets.
 
 The option is shown only when the secure browser context reports both a
 user-verifying platform authenticator and WebAuthn PRF support. Some browser,
@@ -135,6 +143,12 @@ browser backups or underlying storage; this is not a forensic secure erase.
 Vault, WebAuthn PRF wrapping/unlock, cancellation, hidden-page locking,
 responsive dashboard, readiness indicator, and encrypted import/export
 regressions: `node --test tests\web\espwake.test.mjs`.
+
+Deterministic lifecycle/transfer regressions (no browser required):
+`node --test components\espwake\tests\lifecycle.test.mjs`.
+Button rows use compact labels, at least 44px-tall action targets and explicit
+row/column gaps; add/import and dialog controls wrap or stack instead of
+squeezing long labels together on narrow screens.
 
 The computer-card status pill reports only whether the ESP32 answered its
 status request; PC power/network state remains in the device-status area and
@@ -259,6 +273,23 @@ In the installed app (standalone/fullscreen, including iOS Home Screen mode), Co
 Configuration URLs retain a trailing slash and proxy path prefixes. Passwords are not placed in URLs, and the new window does not retain an opener.
 
 After deploying changes to GitHub Pages, reload the dashboard to receive the updated script/service worker. Local edits do not change the published site automatically.
+
+### Background-grace frontend release
+
+The compact-controls/background-grace update uses CSS and script asset version
+`20261114-grace1` and service-worker cache
+`esp-wake-shell-v40-background-grace`. It does not change the encrypted file
+format, WebAuthn metadata, firmware, helper or Host versions.
+
+After regression and browser checks, publish the tested `index.html`,
+`css/styles.css`, `js/script.js` and `service-worker.js` together at the root of
+the public `taducanh1605/espwake` repository's `main` branch, preserving its other
+files. Its GitHub Pages source is `main` / root, serving
+`https://taducanh1605.github.io/espwake/`; the private ESPWake workflow only
+validates and does not deploy this site. Wait for Pages to finish, then verify
+the public asset versions, service-worker cache and a reload/offline reload.
+Check short file-picker returns, return after at least 60 seconds hidden, manual
+lock and compact wrapped/stacked controls before considering deployment complete.
 
 ## ESP32 endpoint discovery and identity
 

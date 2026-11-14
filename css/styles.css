@@ -58,18 +58,21 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
     padding: 11px 18px;
     border-radius: 6px;
     font-weight: 700;
+    font-size: 0.85rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
 }
 .add-button { background: var(--forest); color: #fff; }
 .add-button span { margin-right: 7px; font-size: 1.2rem; }
-.primary-button, .secondary-button { border: 1px solid var(--line); background: #f3f5f2; color: var(--forest); font-size: 1.25rem; padding: 8px 12px; }
+.primary-button, .secondary-button { border: 1px solid var(--line); background: #f3f5f2; color: var(--forest); padding: 8px 12px; }
 
 .computers-list { display: grid; gap: 18px; }
 .export-all-footer { display: block; margin: 18px auto 0; background: transparent; border: 1px solid var(--line); color: var(--forest); }
 
 .configuration-tools { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
-.configuration-tools button { flex: 1 1 160px; }
+.configuration-tools button { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
 .computer-add-tools { max-width: 540px; margin: 18px auto 0; }
-.computer-add-tools button { flex: 1 1 0; min-width: 0; }
+.computer-add-tools button { flex: 1 1 160px; }
 .profile-transfer-row { grid-column: 1 / -1; margin: 0 0 18px; }
 .vault-panel, #transfer-dialog, #biometric-dialog {
     padding: 24px;
@@ -81,13 +84,15 @@ h2 { margin-bottom: 0; font-size: 1.35rem; }
 }
 .vault-panel h2, #transfer-dialog h2, #biometric-dialog h2 { margin-bottom: 14px; }
 .vault-panel form, #transfer-form, #biometric-form { display: grid; gap: 16px; }
+#biometric-unlock { width: 100%; margin-top: 12px; }
+#transfer-form .configuration-tools, #biometric-form .configuration-tools { margin: 0; }
 .vault-panel label, #transfer-form label, #biometric-form label { display: grid; gap: 7px; font-size: 0.83rem; font-weight: 700; }
 .vault-panel p, #transfer-dialog p, #biometric-dialog p { line-height: 1.5; overflow-wrap: anywhere; }
 #transfer-dialog, #biometric-dialog { width: min(540px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; }
 #transfer-dialog::backdrop, #biometric-dialog::backdrop { background: rgba(14, 45, 32, 0.6); }
 .form-message.is-error { color: var(--red); }
 .vault-security-tools { max-width: 540px; margin-inline: auto; }
-.vault-security-tools button { flex: 1 1 0; min-width: 0; }
+.vault-security-tools button { flex: 1 1 220px; }
 
 .computer-card {
     overflow: hidden;
@@ -371,7 +376,7 @@ input, select {
 }
 input::placeholder { color: #97a098; }
 .password-storage-row { display: flex; align-items: center; justify-content: flex-end; margin: 7px 0 18px; }
-.identity-controls { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; margin: 5px 0 16px; color: var(--muted); font-size: 0.74rem; }
+.identity-controls { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; margin: -4px 0 16px; color: var(--muted); font-size: 0.74rem; }
 .clear-password-button {
     flex: 0 0 auto;
     min-height: 38px;
@@ -384,14 +389,15 @@ input::placeholder { color: #97a098; }
     font-weight: 800;
 }
 .form-actions { justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
-.form-actions > button { min-width: 0; max-width: 100%; }
+.form-actions > button { min-width: 44px; max-width: 100%; overflow-wrap: anywhere; }
 .primary-button, .secondary-button, .force-shutdown-button, .delete-button {
     padding: 8px 12px;
     border: 1px solid rgba(198, 77, 68, 0.34);
     border-radius: 6px;
     background: #fff7f5;
     font-weight: 800;
-    font-size: 1.25rem;
+    font-size: 0.85rem;
+    line-height: 1.3;
 }
 .form-message { min-height: 20px; margin: 13px 0 0; color: var(--muted); font-size: 0.8rem; }
 .form-message.is-error { color: var(--red); }
@@ -428,8 +434,11 @@ input::placeholder { color: #97a098; }
     .computer-settings { grid-template-columns: 1fr; padding: 22px 18px 24px; }
     .computer-settings label { grid-column: 1; margin-bottom: 16px; }
     .password-storage-row { align-items: stretch; flex-direction: column; }
-    .form-actions { gap: 6px; }
-    /* .form-actions .primary-button, .form-actions .secondary-button, .form-actions .force-shutdown-button { min-width: 0; padding-inline: 10px; font-size: 0.78rem; line-height: 1.2; overflow-wrap: anywhere; } */
+    .form-actions, .configuration-tools { gap: 8px; }
+    .form-actions .primary-button, .form-actions .secondary-button, .form-actions .force-shutdown-button, .form-actions .delete-button {
+        padding-inline: 10px;
+        font-size: 0.78rem;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
