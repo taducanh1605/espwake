@@ -1237,23 +1237,23 @@ function remoteConnection(data) {
     return { host: host.origin, ticket: data.ticket };
 }
 
+let embeddedRemote;
+function closeEmbeddedRemote() {
+    if (!embeddedRemote) return;
+    const { frame, cleanup, button } = embeddedRemote;
+    embeddedRemote = undefined;
+    cleanup?.();
+    frame.remove();
+    document.getElementById("remote-workspace").hidden = true;
+    document.body.classList.remove("remote-active");
+    button.focus({ preventScroll: true });
+}
+document.getElementById("remote-back").addEventListener("click", closeEmbeddedRemote);
+
 async function openRemoteDesktop(profile, card, button) {
     if (remoteLaunches.has(profile.id)) return;
     if (!profile.password) throw new Error("Configure an ESP32 control password before launching remote desktop.");
-    const sameWindow = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true ||
-        window.matchMedia("(pointer: coarse)").matches;
-    const remoteWindow = sameWindow ? window : window.open("about:blank", `njk-remote-${profile.id}`);
-    if (!remoteWindow) throw new Error("Allow pop-ups to open RemotePC.");
-    if (!sameWindow) {
-        remoteWindow.document.open();
-        remoteWindow.document.write(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Opening RemotePC</title><body style="margin:0;padding:24px;background:#edf1ec;color:#17211d;font:16px system-ui">
-        <main style="max-width:520px;margin:auto"><h1>Opening RemotePC</h1>
-        <p id="handoff-status" role="status" aria-live="polite">Getting a one-time connection ticket...</p>
-        <p>Keep ESPWake open until the stream connects.</p></main></body></html>`);
-        remoteWindow.document.close();
-    }
-    const loadingStatus = sameWindow ? cardPart(card, "message") : remoteWindow.document.getElementById("handoff-status");
+    if (embeddedRemote) throw new Error("Return to the current RemotePC workspace before opening another computer.");
     let viewerId;
     try {
         const key = `espwake-remote-viewer-${profile.id}`;
@@ -1263,9 +1263,20 @@ async function openRemoteDesktop(profile, card, button) {
             localStorage.setItem(key, viewerId);
         }
     } catch (error) {
-        if (!sameWindow) remoteWindow.close();
         throw new Error(`Remote device identity could not be saved: ${error.message}`);
     }
+    const frame = document.createElement("iframe");
+    frame.title = `RemotePC — ${profile.name}`;
+    frame.allow = "autoplay; fullscreen; microphone; gamepad; clipboard-read; clipboard-write";
+    frame.allowFullscreen = true;
+    frame.referrerPolicy = "same-origin";
+    document.getElementById("remote-frame-container").replaceChildren(frame);
+    const remoteWindow = frame.contentWindow;
+    const loadingStatus = document.getElementById("remote-workspace-status");
+    loadingStatus.textContent = "Getting a one-time connection ticket...";
+    document.getElementById("remote-workspace").hidden = false;
+    document.body.classList.add("remote-active");
+    embeddedRemote = { frame, button };
     remoteLaunches.add(profile.id);
     const originalIcon = button.innerHTML;
     const spinner = document.createElement("span");
@@ -1319,21 +1330,26 @@ async function openRemoteDesktop(profile, card, button) {
     };
     const receive = event => {
         if (event.source !== remoteWindow || event.origin !== origin) return;
+        if (event.data?.type === "njk-embedded-return") { closeEmbeddedRemote(); return; }
         return refresh(event.data, message => remoteWindow.postMessage(message, origin));
     };
     window.addEventListener("message", receive);
     if (broker) broker.onmessage = event => refresh(event.data, message => broker.postMessage(message));
-    // A detached standalone window may report closed while still running.
+    // Keep return handling for the frame after the short-lived ticket broker ends.
     const closedTimer = setTimeout(() => cleanup(), 240000);
-    cleanup = () => { disposed = true; clearTimeout(closedTimer); window.removeEventListener("message", receive); broker?.close(); };
+    const closeBroker = () => { disposed = true; clearTimeout(closedTimer); broker?.close(); };
+    cleanup = closeBroker;
+    embeddedRemote.cleanup = () => { closeBroker(); window.removeEventListener("message", receive); };
     try {
         const data = await freshTicket();
+        if (disposed || embeddedRemote?.frame !== frame) return;
         await rememberRemoteHost(profile.id, data.host);
-        const fragment = new URLSearchParams({ ...data, profileId: profile.id, fullscreen: "1", return: "espwake", nonce, clientId: viewerId, sameWindow: sameWindow ? "1" : "0" });
-        remoteWindow.location.href = `https://taducanh1605.github.io/remotepc/#${fragment}`;
+        if (disposed || embeddedRemote?.frame !== frame) return;
+        const fragment = new URLSearchParams({ ...data, profileId: profile.id, fullscreen: "1", return: "espwake", nonce, clientId: viewerId, sameWindow: "1" });
+        frame.src = `https://taducanh1605.github.io/remotepc/#${fragment}`;
+        loadingStatus.textContent = profile.name;
     } catch (error) {
-        cleanup();
-        if (!sameWindow) remoteWindow.close();
+        closeEmbeddedRemote();
         throw error;
     } finally {
         remoteLaunches.delete(profile.id);
@@ -1895,6 +1911,15 @@ async function startRemoteBroker(parameters) {
 
 (async function initialize() {
     try {
+        if (window.parent !== window && document.referrer &&
+            new URLSearchParams(window.location.hash.slice(1)).get("broker") !== "1") {
+            const previous = new URL(document.referrer);
+            if (previous.origin === "https://taducanh1605.github.io" &&
+                ["/remotepc/", "/remotepc/index.html"].includes(previous.pathname)) {
+                window.parent.postMessage({ type: "njk-embedded-return" }, previous.origin);
+                return;
+            }
+        }
         EncryptedConfig.requireCrypto();
         database = await openDatabase();
         const capability = await getBiometricCapability();

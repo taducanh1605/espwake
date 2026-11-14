@@ -83,9 +83,10 @@ the platform authenticator may retain its credential until removed through
 the browser or OS credential manager. Losing the passphrase means losing the
 recovery path; keep a separately encrypted export as a backup.
 
-Switching from ESPWake to RemotePC also hides the dashboard and starts the same
-60-second grace period (leaving the page locks immediately). A short-lived
-ticket prepared before the switch completes the initial handoff. If it expires, the
+Opening the embedded RemotePC workspace hides the dashboard visually but does
+not background its document or start the 60-second vault grace period. Switching
+to another app or turning the screen off still starts that period (leaving the
+page locks immediately). A short-lived ticket completes the initial handoff. If it expires, the
 dashboard will not renew it from a hidden/locked session; RemotePC reports that
 ESPWake settings are hidden or locked and asks you to return, unlock if needed,
 and reopen RemotePC. The grace period does not authorize hidden ticket renewal
@@ -234,11 +235,16 @@ Normal launches do not depend on a suspended ESPWake page to renew access.
 The initial launch window shows progress instead of remaining blank while the
 Windows helper refreshes the pool. Update the Host gateway before this dashboard;
 certificate failures provide a certificate-check link without leaving ESPWake.
-Touch/mobile and installed ESPWake launches navigate the existing window to the
-canonical RemotePC URL rather than opening a temporary blank browser tab.
-Whether a separately installed RemotePC app captures that link is controlled by
-the phone's browser/OS. The RemotePC manifest requests reuse of an existing app.
-RemotePC selects fullscreen automatically for this launch. A browser requiring
+RemotePC opens inside a full-page iframe in ESPWake, on desktop, touch/mobile
+and installed ESPWake alike. The existing RemotePC PWA and its deployment remain
+unchanged; no second copy of its streaming code is shipped with ESPWake.
+The frame delegates fullscreen, audio playback, microphone and gamepad access
+subject to browser permission. **Back to ESPWake** removes the frame (releasing
+its session through RemotePC's existing pagehide handling) and restores the
+dashboard. RemotePC's Disconnect/Quit returns the frame to ESPWake, whose
+embedded return page signals the parent to close it without initializing another
+vault or biometric prompt. Reset connection stays inside the frame.
+A browser requiring
 a fresh user gesture can defer fullscreen until the first video tap without
 blocking the stream or asking for a token/Connect click. Versioned script assets
 refresh the connection shell; host credentials remain in the fragment only as
@@ -276,9 +282,9 @@ After deploying changes to GitHub Pages, reload the dashboard to receive the upd
 
 ### Automatic biometric unlock frontend release
 
-The automatic biometric-unlock update uses CSS and script asset version
-`20261114-auto-unlock1` and service-worker cache
-`esp-wake-shell-v41-auto-unlock`. When the locked page opens, an enrolled and
+The embedded RemotePC update uses CSS and script asset version
+`20261114-embedded1` and service-worker cache
+`esp-wake-shell-v42-embedded`. When the locked page opens, an enrolled and
 supported authenticator is prompted once; cancelling leaves passphrase recovery
 available and focuses its input. Hidden pages and the RemotePC broker do not
 start an automatic prompt. This does not change the encrypted file format,
