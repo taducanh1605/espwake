@@ -1118,110 +1118,97 @@ async function sendPowerCommand(profile, card, forceShutdown = false) {
     }
 }
 
-function openConfiguration(profile, button, verifiedBaseUrl = profile.baseUrl, reservedWindow = null, loadingStop = null) {
+function openConfiguration(profile, frame, verifiedBaseUrl = profile.baseUrl) {
     if (!profile.baseUrl) throw new Error("Enter and save an ESP32 address first.");
-
+    if (embeddedRemote?.frame !== frame) return;
     const baseUrl = normalizeBaseUrl(verifiedBaseUrl);
-
-    const installedApp = window.matchMedia?.("(display-mode: standalone), (display-mode: fullscreen)").matches
-        || navigator.standalone === true;
-
-    if (!profile.password && !button) {
-        window.open(`${baseUrl}/`, "_blank", "noopener,noreferrer");
+    const status = document.getElementById("remote-workspace-status");
+    document.getElementById("configuration-direct").href = `${baseUrl}/`;
+    if (location.protocol === "https:" && new URL(baseUrl).protocol !== "https:") {
+        embeddedRemote.cleanup();
+        status.textContent = "An HTTPS app cannot embed an HTTP device. Configure HTTPS on the ESP32, or use Open directly.";
         return;
     }
-
-    if (button?.disabled && !loadingStop) return;
-    const configWindow = installedApp && profile.password ? window : reservedWindow || window.open("about:blank", "_blank");
-    if (!configWindow) throw new Error("Allow pop-ups to open the configuration page.");
-
-    const stopLoading = loadingStop || (button ? showConfigurationLoading(button, configWindow) : () => {});
-    try {
-        if (!profile.password) {
-            configWindow.opener = null;
-            configWindow.location.href = `${baseUrl}/`;
-            return;
-        }
-        const formDocument = installedApp ? document : configWindow.document;
-        const loginForm = formDocument.createElement("form");
-        loginForm.method = "POST";
-        loginForm.enctype = "application/x-www-form-urlencoded";
-        loginForm.action = endpoint({ baseUrl }, "login");
-        loginForm.target = "_self";
-        loginForm.hidden = true;
-
-        const passwordField = formDocument.createElement("input");
-        passwordField.type = "hidden";
-        passwordField.name = "password";
-        passwordField.value = profile.password;
-        loginForm.appendChild(passwordField);
-        formDocument.body.appendChild(loginForm);
-        if (!installedApp) configWindow.opener = null;
-        loginForm.submit();
-    } catch (error) {
-        stopLoading();
-        throw error;
+    status.textContent = "Opening ESP32 configuration...";
+    frame.addEventListener("load", () => {
+        if (embeddedRemote?.frame !== frame) return;
+        status.hidden = true;
+        embeddedRemote.cleanup();
+    }, { once: true });
+    if (!profile.password) {
+        document.getElementById("configuration-help").textContent =
+            "Device identity was not verified; no saved password was sent. Sign in manually. If sign-in repeats, use Open directly.";
+        frame.src = `${baseUrl}/`;
+        return;
     }
+    const loginForm = document.createElement("form");
+    loginForm.method = "POST";
+    loginForm.enctype = "application/x-www-form-urlencoded";
+    loginForm.action = endpoint({ baseUrl }, "login");
+    loginForm.target = frame.name;
+    loginForm.hidden = true;
+    const passwordField = document.createElement("input");
+    passwordField.type = "hidden";
+    passwordField.name = "password";
+    passwordField.value = profile.password;
+    loginForm.appendChild(passwordField);
+    document.body.appendChild(loginForm);
+    try {
+        loginForm.submit();
+    } finally { loginForm.remove(); }
 }
 
-function openProfileConfiguration(profile, button) {
-    let baseUrl = profile.deviceHostname ? profile.selectedEndpoint || profile.baseUrl : profile.baseUrl;
-
+async function openProfileConfiguration(profile, button) {
+    if (!profile.baseUrl) throw new Error("Enter and save an ESP32 address first.");
+    const baseUrl = normalizeBaseUrl(profile.deviceHostname ? profile.selectedEndpoint || profile.baseUrl : profile.baseUrl);
+    const frame = openEmbeddedWorkspace(`ESP32 configuration — ${profile.name}`, button, true);
+    document.getElementById("remote-workspace-status").textContent = "Verifying ESP32 identity...";
+    document.getElementById("configuration-direct").href = `${baseUrl}/`;
+    document.getElementById("configuration-help").textContent =
+        "If the page is blank or sign-in repeats, open directly to check the device certificate or first-party cookie requirements.";
+    const stopLoading = showConfigurationLoading(button);
+    embeddedRemote.cleanup = stopLoading;
     if (!profile.deviceHostname) {
-        openConfiguration({ ...profile, password: "" }, button, baseUrl);
-        return Promise.resolve(false);
+        openConfiguration({ ...profile, password: "" }, frame, baseUrl);
+        return false;
     }
-
-    const installedApp = window.matchMedia?.("(display-mode: standalone), (display-mode: fullscreen)").matches
-        || navigator.standalone === true;
-    const configWindow = installedApp && profile.password ? window : window.open("about:blank", "_blank");
-    if (!configWindow) throw new Error("Allow pop-ups to open the configuration page.");
-    const stopLoading = button ? showConfigurationLoading(button, configWindow) : () => {};
-
-    return withDeviceOperation(profile, () => resolveFastestEndpoint(profile)).then((verifiedBaseUrl) => {
-        openConfiguration(profile, button, verifiedBaseUrl, configWindow, stopLoading);
-        return true;
-    }, (error) => {
+    let verifiedBaseUrl;
+    try { verifiedBaseUrl = await withDeviceOperation(profile, () => resolveFastestEndpoint(profile)); }
+    catch (error) {
         if (error.code === "DEVICE_IDENTITY_MISMATCH") {
             stopLoading();
-            if (configWindow !== window) configWindow.close();
+            if (embeddedRemote?.frame === frame) closeEmbeddedRemote();
             throw error;
         }
-        openConfiguration({ ...profile, password: "" }, button, baseUrl, configWindow, stopLoading);
+        console.warn("Configuration identity could not be verified; opening without saved credentials:", error.message);
+        openConfiguration({ ...profile, password: "" }, frame, baseUrl);
         return false;
-    });
+    }
+    openConfiguration(profile, frame, verifiedBaseUrl);
+    return true;
 }
 
-function showConfigurationLoading(button, configWindow) {
+function showConfigurationLoading(button) {
     const originalIcon = button.innerHTML;
-    const originalDocument = configWindow.document;
     const spinner = document.createElement("span");
     spinner.className = "config-spinner";
     spinner.setAttribute("aria-hidden", "true");
     button.replaceChildren(spinner);
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
-    let interval;
     let timeout;
     const stopLoading = () => {
-        clearInterval(interval);
         clearTimeout(timeout);
-        window.removeEventListener("pageshow", stopLoading);
         button.innerHTML = originalIcon;
         button.disabled = false;
         button.removeAttribute("aria-busy");
     };
-    window.addEventListener("pageshow", stopLoading);
-    if (configWindow !== window) {
-        interval = setInterval(() => {
-            try {
-                if (configWindow.closed || configWindow.document !== originalDocument) stopLoading();
-            } catch {
-                stopLoading();
-            }
-        }, 200);
-    }
-    timeout = setTimeout(stopLoading, 30000);
+    timeout = setTimeout(() => {
+        stopLoading();
+        const status = document.getElementById("remote-workspace-status");
+        status.textContent = "The device page did not finish loading. Use Open directly to check its certificate, network or embedding restrictions.";
+        status.hidden = false;
+    }, 30000);
     return stopLoading;
 }
 
@@ -1238,6 +1225,28 @@ function remoteConnection(data) {
 }
 
 let embeddedRemote;
+function openEmbeddedWorkspace(title, button, configuration = false) {
+    if (embeddedRemote) throw new Error("Close the current workspace before opening another page.");
+    const frame = document.createElement("iframe");
+    frame.title = title;
+    frame.referrerPolicy = "same-origin";
+    if (configuration) frame.name = `espwake-config-${crypto.randomUUID()}`;
+    else {
+        frame.allow = "autoplay; fullscreen; microphone; gamepad; clipboard-read; clipboard-write";
+        frame.allowFullscreen = true;
+    }
+    document.getElementById("configuration-toolbar").hidden = !configuration;
+    const workspace = document.getElementById("remote-workspace");
+    workspace.setAttribute("aria-label", configuration ? "ESP32 configuration workspace" : "RemotePC workspace");
+    document.getElementById("remote-frame-container").replaceChildren(frame);
+    document.getElementById("remote-workspace-status").hidden = false;
+    workspace.hidden = false;
+    document.body.classList.add("remote-active");
+    embeddedRemote = { frame, button, configuration };
+    frame.addEventListener("load", resizeEmbeddedRemote);
+    resizeEmbeddedRemote();
+    return frame;
+}
 function resizeEmbeddedRemote() {
     if (!embeddedRemote || document.hidden) return;
     const viewport = window.visualViewport;
@@ -1256,7 +1265,7 @@ function resizeEmbeddedRemote() {
     workspace.style.left = `${left}px`;
     workspace.style.width = `${width}px`;
     workspace.style.height = `${Math.max(1, height)}px`;
-    embeddedRemote.frame.contentWindow?.postMessage({
+    if (!embeddedRemote.configuration) embeddedRemote.frame.contentWindow?.postMessage({
         type: "njk-embedded-viewport",
         viewport: document.fullscreenElement === embeddedRemote.frame
             ? { width, height: Math.max(1, height), top, left } : null,
@@ -1268,6 +1277,7 @@ navigator.virtualKeyboard?.addEventListener("geometrychange", resizeEmbeddedRemo
 window.addEventListener("resize", resizeEmbeddedRemote);
 document.addEventListener("fullscreenchange", resizeEmbeddedRemote);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) resizeEmbeddedRemote(); });
+document.getElementById("configuration-back").addEventListener("click", closeEmbeddedRemote);
 
 function closeEmbeddedRemote() {
     if (!embeddedRemote) return;
@@ -1296,21 +1306,11 @@ async function openRemoteDesktop(profile, card, button) {
     } catch (error) {
         throw new Error(`Remote device identity could not be saved: ${error.message}`);
     }
-    const frame = document.createElement("iframe");
-    frame.title = `RemotePC — ${profile.name}`;
-    frame.allow = "autoplay; fullscreen; microphone; gamepad; clipboard-read; clipboard-write";
-    frame.allowFullscreen = true;
-    frame.referrerPolicy = "same-origin";
-    document.getElementById("remote-frame-container").replaceChildren(frame);
+    const frame = openEmbeddedWorkspace(`RemotePC — ${profile.name}`, button);
     const remoteWindow = frame.contentWindow;
     const loadingStatus = document.getElementById("remote-workspace-status");
     loadingStatus.textContent = "Getting a one-time connection ticket...";
     loadingStatus.hidden = false;
-    document.getElementById("remote-workspace").hidden = false;
-    document.body.classList.add("remote-active");
-    embeddedRemote = { frame, button };
-    frame.addEventListener("load", resizeEmbeddedRemote);
-    resizeEmbeddedRemote();
     remoteLaunches.add(profile.id);
     const originalIcon = button.innerHTML;
     const spinner = document.createElement("span");

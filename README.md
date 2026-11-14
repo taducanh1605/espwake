@@ -251,6 +251,28 @@ its same-origin parent to size the video and requested Host desktop in that
 case. Exiting fullscreen clears the override. Standalone RemotePC behavior is
 unchanged. This is not a CSS-only shrink of the video: the integration tests
 verify the resulting Host resize payload and avoid duplicate mode changes.
+
+PWA 59 hides its startup overlay once video is playing and decoded, including
+dark frames or denied canvas readback; desktop-content verification still gates
+the separate active-stream broadcast. Optional resize previews cannot block Host
+resize requests when a browser denies canvas reads. Rotate screen first uses
+the same-origin parent's native orientation lock. If the browser rejects it or
+does not rotate the visible viewport, it rotates the remote view instead, with
+matching desktop dimensions and mouse/touch/pen coordinates. Keyboard geometry
+continues to resize that rotated desktop. Unified Connection is **off for fresh
+settings** in both menus; an explicitly saved enabled choice is preserved.
+
+The ESP32 configuration action also uses the workspace, with **Back to ESPWake**
+and **Open directly** controls shown only for device configuration, never for a
+RemotePC stream. A verified device receives the password in a temporary POST form
+targeted at the iframe; the form is removed immediately. Unknown identity never
+receives the saved password, and an identity mismatch closes the workspace.
+HTTPS cannot embed an HTTP device. Certificates, browser third-party-cookie
+policies, framing restrictions and firmware first-party session cookies can
+prevent sign-in in an iframe. These limitations are shown beside Open directly;
+legacy firmware's default `SameSite=Lax` cookie cannot authenticate embedded
+configuration, so open it directly when sign-in repeats. This web update does not
+silently weaken device cookie policy, bypass identity verification or flash firmware.
 A browser requiring
 a fresh user gesture can defer fullscreen until the first video tap without
 blocking the stream or asking for a token/Connect click. Versioned script assets
@@ -290,8 +312,8 @@ After deploying changes to GitHub Pages, reload the dashboard to receive the upd
 ### Automatic biometric unlock frontend release
 
 The embedded RemotePC update uses CSS and script asset version
-`20261114-embedded2` and service-worker cache
-`esp-wake-shell-v43-viewport`. When the locked page opens, an enrolled and
+`20261114-config1` and service-worker cache
+`esp-wake-shell-v44-config`. When the locked page opens, an enrolled and
 supported authenticator is prompted once; cancelling leaves passphrase recovery
 available and focuses its input. Hidden pages and the RemotePC broker do not
 start an automatic prompt. This does not change the encrypted file format,
