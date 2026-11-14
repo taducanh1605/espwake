@@ -1,10 +1,10 @@
-const CACHE_NAME = "esp-wake-shell-v40-background-grace";
+const CACHE_NAME = "esp-wake-shell-v41-auto-unlock";
 const APP_SHELL = [
     "./",
     "./index.html",
-    "./css/styles.css?v=20261114-grace1",
+    "./css/styles.css?v=20261114-auto-unlock1",
     "./js/encrypted-config.js?v=20261111-ready3",
-    "./js/script.js?v=20261114-grace1",
+    "./js/script.js?v=20261114-auto-unlock1",
     "./manifest.webmanifest?v=3",
     "./icons/esp-wake-192.png?v=3",
     "./icons/esp-wake-512.png?v=3",

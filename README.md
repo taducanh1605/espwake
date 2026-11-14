@@ -274,12 +274,15 @@ Configuration URLs retain a trailing slash and proxy path prefixes. Passwords ar
 
 After deploying changes to GitHub Pages, reload the dashboard to receive the updated script/service worker. Local edits do not change the published site automatically.
 
-### Background-grace frontend release
+### Automatic biometric unlock frontend release
 
-The compact-controls/background-grace update uses CSS and script asset version
-`20261114-grace1` and service-worker cache
-`esp-wake-shell-v40-background-grace`. It does not change the encrypted file
-format, WebAuthn metadata, firmware, helper or Host versions.
+The automatic biometric-unlock update uses CSS and script asset version
+`20261114-auto-unlock1` and service-worker cache
+`esp-wake-shell-v41-auto-unlock`. When the locked page opens, an enrolled and
+supported authenticator is prompted once; cancelling leaves passphrase recovery
+available and focuses its input. Hidden pages and the RemotePC broker do not
+start an automatic prompt. This does not change the encrypted file format,
+WebAuthn metadata, firmware, helper or Host versions.
 
 After regression and browser checks, publish the tested `index.html`,
 `css/styles.css`, `js/script.js` and `service-worker.js` together at the root of

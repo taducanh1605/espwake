@@ -23,6 +23,7 @@ let vaultSalt;
 let biometricMetadata = null;
 let biometricSupported = false;
 let biometricEnrollmentPending = false;
+let biometricAutoUnlockAttempted = false;
 let vaultEpoch = 0;
 let vaultHiddenAt = null;
 let vaultHiddenTimer;
@@ -1568,7 +1569,12 @@ vaultForm.addEventListener("submit", async event => {
     }
 });
 
-biometricUnlockButton.addEventListener("click", async () => {
+async function unlockWithBiometric({ automatic = false } = {}) {
+    if (automatic) {
+        if (biometricAutoUnlockAttempted || document.hidden || dashboard.hidden === false ||
+            vaultForm.hidden || !biometricMetadata || !biometricSupported) return;
+        biometricAutoUnlockAttempted = true;
+    }
     const expectedEpoch = vaultEpoch;
     biometricUnlockButton.disabled = true;
     vaultMessage.textContent = "Waiting for device verification...";
@@ -1601,9 +1607,17 @@ biometricUnlockButton.addEventListener("click", async () => {
         vaultMessage.classList.add("is-error");
     } finally {
         biometricUnlockButton.disabled = false;
-        if (expectedEpoch === vaultEpoch) biometricUnlockButton.focus();
+        if (expectedEpoch === vaultEpoch) {
+            if (automatic) {
+                if (!vaultForm.hidden) vaultPassword.focus();
+            } else {
+                biometricUnlockButton.focus();
+            }
+        }
     }
-});
+}
+
+biometricUnlockButton.addEventListener("click", () => unlockWithBiometric());
 
 enableBiometricButton.addEventListener("click", () => {
     if (!biometricSupported || !vaultKey) {
@@ -1908,6 +1922,9 @@ async function startRemoteBroker(parameters) {
         if (!biometricSupported) {
             vaultMessage.textContent = `${capability.reason} Your settings passphrase remains available.`;
             vaultMessage.classList.add("is-error");
+        }
+        if (biometricMetadata && biometricSupported && !document.hidden) {
+            void unlockWithBiometric({ automatic: true });
         }
     } catch (error) {
         console.error("Initialization failed:", error);
