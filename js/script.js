@@ -1243,7 +1243,14 @@ function openEmbeddedWorkspace(title, button, configuration = false) {
     workspace.hidden = false;
     document.body.classList.add("remote-active");
     embeddedRemote = { frame, button, configuration };
-    frame.addEventListener("load", resizeEmbeddedRemote);
+    const navigationId = crypto.randomUUID();
+    embeddedRemote.navigationId = navigationId;
+    const guardBack = () => {
+        if (embeddedRemote?.frame !== frame) return;
+        history.pushState({ espwakeWorkspace: navigationId }, "", location.href);
+    };
+    guardBack();
+    frame.addEventListener("load", () => { resizeEmbeddedRemote(); guardBack(); });
     resizeEmbeddedRemote();
     return frame;
 }
@@ -1279,9 +1286,12 @@ document.addEventListener("fullscreenchange", resizeEmbeddedRemote);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) resizeEmbeddedRemote(); });
 document.getElementById("configuration-back").addEventListener("click", closeEmbeddedRemote);
 
-function closeEmbeddedRemote() {
+window.addEventListener("popstate", () => {
+    if (embeddedRemote) closeEmbeddedRemote(false);
+});
+function closeEmbeddedRemote(navigateBack = true) {
     if (!embeddedRemote) return;
-    const { frame, cleanup, button } = embeddedRemote;
+    const { frame, cleanup, button, navigationId } = embeddedRemote;
     embeddedRemote = undefined;
     cleanup?.();
     frame.remove();
@@ -1290,6 +1300,7 @@ function closeEmbeddedRemote() {
     workspace.removeAttribute("style");
     document.body.classList.remove("remote-active");
     button.focus({ preventScroll: true });
+    if (navigateBack !== false && history.state?.espwakeWorkspace === navigationId) history.back();
 }
 async function openRemoteDesktop(profile, card, button) {
     if (remoteLaunches.has(profile.id)) return;

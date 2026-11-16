@@ -273,6 +273,60 @@ prevent sign-in in an iframe. These limitations are shown beside Open directly;
 legacy firmware's default `SameSite=Lax` cookie cannot authenticate embedded
 configuration, so open it directly when sign-in repeats. This web update does not
 silently weaken device cookie policy, bypass identity verification or flash firmware.
+
+### PWA 60 / ESPWake shell 45
+
+Browser/system Back from an embedded RemotePC or device-configuration workspace
+closes that workspace and reveals the existing ESPWake dashboard, rather than
+leaving ESPWake. Explicit Disconnect/Back still works; closing an embedded stream
+detaches the viewer without quitting the Host application. The embedded stream
+does not install a navigation-confirmation barrier over the parent's Back action.
+
+RemotePC's floating menu includes **Resize desktop when keyboard opens**, enabled
+by default and saved locally. When disabled, the pre-keyboard Host dimensions
+are retained and the visible desktop is clipped/panned by keyboard occlusion;
+opening the keyboard does not trigger a Host mode change. Re-enabling the option
+restores the normal resize/ACK path, including fullscreen and rotated views.
+
+**Reduce bitrate on video loss below 25 FPS** remains opt-in. The PWA initially
+disables the gateway's existing video-loss policy, then enables it only after
+three consecutive measured intervals below 25 decoded FPS (normally about six
+seconds after the baseline). At 25 FPS or higher, when hidden, or when the option
+is unchecked, it disables that policy. Counter resets and stale measurements
+also revoke eligibility. Low FPS alone does not lower bitrate: the gateway must
+still receive its existing congestion/loss feedback. This is bitrate adaptation,
+not automatic resolution reduction; the independent RTT option is unchanged.
+No native Host upgrade is needed for Hosts already supporting `videoAdaptation`.
+
+#### Why native Android can be smoother
+
+The paths are not equivalent, even on the same network/device:
+
+- Native Android uses the GameStream transport; the Host's native video path
+  includes Reed-Solomon FEC ([stream.cpp](../../src/stream.cpp)).
+  Android directly configures MediaCodec low-latency options and schedules decoder
+  output against display callbacks with a bounded frame-pacing queue
+  ([MediaCodecDecoderRenderer.java](../android/app/src/main/java/com/limelight/binding/video/MediaCodecDecoderRenderer.java)).
+- The PWA uses WebRTC H.264/Opus through a gateway. Its existing Pion NACK/RTCP
+  recovery can retransmit lost video, while the browser controls jitter buffering,
+  decode and compositing. Requesting a zero jitter target is only a hint, not
+  Android-equivalent decoder control ([app.js](../../pwa/app.js),
+  [performance.go](../../tools/browser-gateway/performance.go)).
+- Keyboard-driven display changes invoke a Host resize/encoder transition. The
+  new opt-out avoids those transitions during typing; the FPS gate also prevents
+  unnecessary loss-driven bitrate cuts while playback remains usable.
+
+For comparison, keep bitrate, FPS, canvas/detail and DPI equal, disable keyboard
+resize when typing, and compare the existing split/grouped/unified transport
+choices using decoded FPS, loss and RTT. Grouping does not create bandwidth or
+guarantee smoother playback. Recovering losses with FEC or improving browser
+frame scheduling would require a separately measured transport change, not just
+copying Android decoder flags into JavaScript.
+
+Automated Chromium and Firefox coverage uses real WebRTC video/audio and checks
+Host resize messages, the keyboard opt-out, Back for both workspaces, touch,
+fullscreen/rotation, input and reconnect. It is not a physical-device performance
+comparison or proof that installed Safari iOS behaves identically to Safari tabs.
 A browser requiring
 a fresh user gesture can defer fullscreen until the first video tap without
 blocking the stream or asking for a token/Connect click. Versioned script assets
