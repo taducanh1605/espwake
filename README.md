@@ -274,6 +274,32 @@ legacy firmware's default `SameSite=Lax` cookie cannot authenticate embedded
 configuration, so open it directly when sign-in repeats. This web update does not
 silently weaken device cookie policy, bypass identity verification or flash firmware.
 
+### Keyboard fitting and explicit DPI control (PWA 61)
+
+With **Resize Host desktop for keyboard** off, the Host resolution stays fixed
+but the complete video fits into the remaining area above the keyboard, including
+fullscreen and rotated views. This supersedes PWA 60's clipped/panned presentation.
+Mouse and touch coordinates follow the fitted video and exclude letterboxing.
+
+Controls are grouped into quick actions, input, connection, picture, controllers
+and diagnostics. Both Unified connection selectors and their labels are hidden
+while Unified connection is off; saved grouping is retained.
+
+**Allow Windows DPI changes** defaults off, independently of saved DPI values.
+Off suppresses all PWA DPI commands, including restore-to-system, reconnect and
+keyboard/rotation updates; it does not revert an already-applied Host DPI.
+When enabled, manual and Auto DPI controls become available. Detail now changes
+only pixel resolution, never implicitly requests 100%/200% Windows DPI.
+
+Auto detail uses the viewport's browser-reported device pixel ratio (up to 4),
+with orientation-aware 3840/2160 encoder bounds. A DPR-3 phone can therefore
+request its actual visible pixel dimensions instead of being capped at 2x CSS.
+This is not physical-size detection: privacy-reduced browser metrics cannot be
+reconstructed reliably, and explicit detail still intentionally changes Host
+resolution. Keep Auto detail selected and DPI control off to avoid implicit DPI changes.
+Auto DPI, when explicitly enabled, retains its 200% ceiling; higher manual
+choices remain available and can require a larger desktop canvas.
+
 ### PWA 60 / ESPWake shell 45
 
 Browser/system Back from an embedded RemotePC or device-configuration workspace
